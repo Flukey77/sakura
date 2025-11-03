@@ -1,0 +1,9 @@
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    serverActions: { allowedOrigins: ["localhost:3000"] },
+    turbopack: { root: __dirname }, // กัน Next เดา root ผิด
+  },
+};
+
+module.exports = nextConfig;
