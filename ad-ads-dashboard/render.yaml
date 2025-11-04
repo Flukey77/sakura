@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: sakura-dashboard
+    env: docker
+    plan: free
+    healthCheckPath: /api/healthz
+    postDeployCommand: "npx prisma migrate deploy"
+    disk:            # ถ้าจะใช้ SQLite หรือเก็บไฟล์
+      name: app-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXTAUTH_URL
+        value: ${RENDER_EXTERNAL_URL}
+      - key: AUTH_TRUST_HOST
+        value: "true"
+      - key: DATABASE_URL     # ใส่ค่าใน Dashboard ภายหลัง (sync: false ก็ได้)
+        sync: false
