@@ -1,13 +1,14 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
+
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import Banner from "@/components/Banner";
-// src/app/(auth)/signup/page.tsx
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
 
 export default function SignupPage() {
   const { status } = useSession();
@@ -49,7 +50,7 @@ export default function SignupPage() {
         setBannerMsg("สมัครสมาชิกสำเร็จ");
         router.push("/login?registered=1");
       } else {
-        const data = await res.json().catch(() => ({}));
+        const data = await res.json().catch(() => ({} as any));
         setBannerType("error");
         setBannerMsg(data?.message || "สมัครสมาชิกไม่สำเร็จ");
       }

@@ -1,50 +1,47 @@
 # ---------- deps ----------
-# Stage 1: Cài đặt dependencies
+# Stage 1: ติดตั้ง dependencies
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
-# Dùng npm ci để cài đặt dependencies chính xác từ package-lock.json
-RUN npm ci
+# ใช้ npm install ให้ทนทานกว่าเมื่อ lockfile มีความเบี้ยว
+RUN npm install --no-audit --no-fund
 
 # ---------- build ----------
-# Stage 2: Build ứng dụng
+# Stage 2: Build แอป
 FROM node:20-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+# ดึง node_modules จาก stage ก่อนหน้า
 COPY --from=deps /app/node_modules ./node_modules
+# คัดลอกโค้ดทั้งหมดของแอป (รวม prisma ในโฟลเดอร์นี้ด้วย)
 COPY . .
-
-# Cài đặt các thư viện cần thiết cho Prisma (như openssl)
+# ไลบรารีที่ Prisma engine ต้องใช้บน Alpine
 RUN apk add --no-cache libc6-compat openssl
-# Chạy prisma generate để tạo client
-RUN npx prisma generate
-# Build ứng dụng Next.js
+# generate client จาก prisma ในโฟลเดอร์นี้
+RUN npx prisma generate --schema=./prisma/schema.prisma
+# build Next.js
 RUN npm run build
 
 # ---------- run ----------
-# Stage 3: Chạy ứng dụng
+# Stage 3: รันแอป
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
-# Giữ lại ENV này từ Dockerfile gốc của bạn
 ENV AUTH_TRUST_HOST=true
 
-# Cài đặt các thư viện runtime cần thiết cho Prisma Engine
+# runtime deps ของ Prisma
 RUN apk add --no-cache libc6-compat openssl
 
-# Sao chép các file đã build từ stage 'builder'
+# คัดลอกผล build + ไฟล์ที่ต้องใช้ตอนรัน
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
-
-# !! สำคัญ: คัดลอก schema และ migrations ของ Prisma ไปด้วย
-# เพื่อให้คำสั่ง 'migrate deploy' ทำงานได้
+# สำคัญ: คัดลอก prisma (รวม schema/migrations) มาด้วย
 COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 3000
 
-# นี่คือ CMD ที่คุณขอ: รัน migrate deploy ก่อน แล้วค่อย start app
-CMD sh -c "npx prisma migrate deploy && npm run start"
-
+# รัน migrate deploy ก่อน แล้วค่อย start (ใช้ schema ภายในโฟลเดอร์นี้)
+CMD sh -c "npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start"

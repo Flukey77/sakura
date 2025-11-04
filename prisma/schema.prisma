@@ -1,11 +1,6 @@
-// prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
-  // ✅ ให้ client ไปที่ .prisma/client (จากนั้น @prisma/client จะ forward อัตโนมัติ)
-  output   = "../ad-ads-dashboard/node_modules/.prisma/client"
 }
-
 
 datasource db {
   provider = "postgresql"
@@ -37,14 +32,12 @@ model User {
   image          String?
   hashedPassword String?
 
-  // ✅ ใช้ล็อกอินด้วย username ได้ (optional + unique)
-  username       String?   @unique
+  username       String?   @unique   // <<— ใช้เช็คซ้ำตอน signup/login
 
   role           UserRole  @default(USER)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  // Relations (อย่าประกาศซ้ำ)
   subscription   Subscription?
   accounts       Account[]
   sessions       Session[]
@@ -62,7 +55,7 @@ model Subscription {
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
 
-  user                 User               @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 }
 
 model AdMetric {
@@ -88,7 +81,7 @@ model AdMetric {
   @@index([date])
 }
 
-/** --- NextAuth models --- */
+/** NextAuth models **/
 model Account {
   id                String  @id @default(cuid())
   userId            String
