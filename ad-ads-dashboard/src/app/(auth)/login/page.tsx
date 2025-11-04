@@ -6,6 +6,10 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Banner from '@/components/Banner';
 
+// ✅ กัน Next พยายาม prerender หน้า login
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 function mapNextAuthError(err?: string | null) {
   if (!err) return null;
   switch (err) {
@@ -18,10 +22,7 @@ function mapNextAuthError(err?: string | null) {
   }
 }
 
-/**
- * ✅ อ่านค่า query string ด้วย useSearchParams
- *    แล้วอัปเดต Banner ผ่าน props (ห่อด้วย Suspense ใน parent)
- */
+/** ใช้ useSearchParams แบบปลอดภัย (อยู่ใน Suspense) */
 function SearchParamsBridge({
   setBannerType,
   setBannerMsg,
@@ -32,15 +33,12 @@ function SearchParamsBridge({
   const search = useSearchParams();
 
   useEffect(() => {
-    // แปลง error ของ NextAuth เป็นภาษาไทย
     const mapped = mapNextAuthError(search.get('error'));
     if (mapped) {
       setBannerType('error');
       setBannerMsg(mapped);
-      return; // ถ้ามี error ก็ไม่ต้องโชว์ registered พร้อมกัน
+      return;
     }
-
-    // โชว์ข้อความสมัครสำเร็จ (จาก /signup redirect)
     if (search.get('registered')) {
       setBannerType('success');
       setBannerMsg('สมัครสมาชิกสำเร็จ กรุณาเข้าสู่ระบบ');
@@ -63,7 +61,6 @@ export default function LoginPage() {
     'info'
   );
 
-  // ถ้า login แล้ว เด้งไป dashboard
   useEffect(() => {
     if (status === 'authenticated') router.replace('/dashboard');
   }, [status, router]);
@@ -81,7 +78,6 @@ export default function LoginPage() {
         redirect: false,
         username: username.trim(),
         password,
-        // ส่งซ้ำค่าเดียวกันเป็น email เผื่อ backend รองรับ email ด้วย
         email: username.trim(),
         callbackUrl: '/dashboard',
       });
@@ -102,7 +98,7 @@ export default function LoginPage() {
 
   return (
     <>
-      {/* ✅ ห่อ hook useSearchParams ด้วย Suspense */}
+      {/* ✅ ห่อ useSearchParams ด้วย Suspense */}
       <Suspense fallback={null}>
         <SearchParamsBridge
           setBannerType={setBannerType}
