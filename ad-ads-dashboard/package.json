@@ -6,7 +6,7 @@
     "node": ">=20 <21"
   },
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev",
     "build": "prisma generate --schema=../prisma/schema.prisma && next build",
     "start": "next start -p 3000",
     "start:render": "node -e \"require('child_process').execSync(`next start -p ${process.env.PORT || 3000}`, { stdio: 'inherit' })\"",
