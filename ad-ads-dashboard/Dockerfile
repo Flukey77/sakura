@@ -47,3 +47,4 @@ EXPOSE 3000
 
 # นี่คือ CMD ที่คุณขอ: รัน migrate deploy ก่อน แล้วค่อย start app
 CMD sh -c "npx prisma migrate deploy && npm run start"
+
