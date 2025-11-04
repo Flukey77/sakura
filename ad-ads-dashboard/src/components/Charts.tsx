@@ -1,19 +1,22 @@
 "use client";
 
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
+} from "recharts";
 
-export function DailySummaryChart({ data }: { data: Array<{ name: string; spend: number; clicks: number; conversions: number; }> }) {
+export function DailySummaryChart({ data }: { data: any[] }) {
   return (
-    <div className="h-72 w-full">
-      <ResponsiveContainer>
+    <div className="h-72 w-full"> {/* ความสูง fix ป้องกันเตือน */}
+      <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" />
           <YAxis />
           <Tooltip />
           <Legend />
-          <Bar dataKey="spend" fill="#111827" name="Spend" />
-          <Bar dataKey="clicks" fill="#6366f1" name="Clicks" />
-          <Bar dataKey="conversions" fill="#14b8a6" name="Conversions" />
+          <Bar dataKey="clicks" fill="#6366F1" />
+          <Bar dataKey="conversions" fill="#10B981" />
+          <Bar dataKey="spend" fill="#111827" />
         </BarChart>
       </ResponsiveContainer>
     </div>
