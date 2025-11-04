@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import Banner from "@/components/Banner";
+// src/app/(auth)/signup/page.tsx
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default function SignupPage() {
   const { status } = useSession();
