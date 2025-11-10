@@ -2,9 +2,9 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
+// API ให้เป็น dynamic เสมอ
 export const dynamic = "force-dynamic";
-export const revalidate = false;
-// (ถ้าต้องการ: บังคับ runtime เป็น Node)
+// ถ้าต้องการ: บังคับ runtime เป็น Node (เพราะใช้ Prisma)
 // export const runtime = "nodejs";
 
 type Row = {
@@ -15,23 +15,18 @@ type Row = {
   safetyStock: number | null;
 };
 
-// ตรวจจับอาการ DB ล่ม/ต่อไม่ติด
+// ตรวจจับอาการ DB ต่อไม่ได้ (เช่น PGBouncer/เครือข่าย)
 function dbDown(e: any) {
   const msg = String(e?.message || "");
   return e?.code === "P1001" || msg.includes("Can't reach database server");
 }
 
 export async function GET() {
-  // กันโดนเรียกระหว่าง build/export
-  if (process.env.NEXT_PHASE === "phase-production-build") {
-    return NextResponse.json({ ok: true, items: [] });
-  }
-
   try {
     let rows: Row[] = [];
 
     try {
-      // ทางเลือกหลัก: raw SQL (เปรียบเทียบคอลัมน์ได้)
+      // ทางหลัก: raw SQL เพื่อคิวรีแบบเปรียบเทียบคอลัมน์ได้
       rows = await prisma.$queryRaw<Row[]>`
         SELECT id, code, name, stock, "safetyStock"
         FROM "Product"
@@ -39,11 +34,12 @@ export async function GET() {
         ORDER BY stock ASC
       `;
     } catch (errRaw: any) {
-      // ถ้าฐานข้อมูลล่ม/ต่อไม่ติด → ส่งเปล่ากลับไป (อย่าทำให้หน้าแตก)
+      // ถ้าฐานข้อมูลล่ม/ต่อไม่ติด → ส่งเปล่ากลับไป (อย่าให้หน้าแตก)
       if (dbDown(errRaw)) {
         return NextResponse.json({ ok: true, items: [], note: "db_unreachable" });
       }
-      // ไม่ใช่อาการ DB down → ลอง fallback ORM
+
+      // ไม่ใช่อาการ DB down → ลอง fallback ใช้ ORM
       const all = await prisma.product.findMany({
         select: { id: true, code: true, name: true, stock: true, safetyStock: true },
       });
