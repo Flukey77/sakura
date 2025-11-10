@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "SaleItem" ALTER COLUMN "qty" DROP DEFAULT;

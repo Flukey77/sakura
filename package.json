@@ -1,26 +1,44 @@
 {
-  "name": "sakuraone",
-  "version": "0.1.0",
+  "name": "Sakuraone",
   "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "clean": "rimraf .next out",
+    "build": "npm run clean && prisma generate && prisma migrate deploy && next build",
+    "render-build": "npm run clean && prisma generate && prisma migrate deploy && next build",
     "start": "next start",
-    "lint": "eslint"
+    "postinstall": "prisma generate",
+    "backfill:customers:dry": "cross-env DRY_RUN=1 tsx scripts/backfill-customers.ts",
+    "backfill:customers": "tsx scripts/backfill-customers.ts"
   },
   "dependencies": {
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "next": "16.0.1"
+    "@headlessui/react": "^2.1.6",
+    "@heroicons/react": "^2.1.5",
+    "@prisma/client": "^6.19.0",
+    "bcryptjs": "^2.4.3",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.552.0",
+    "next": "14.2.4",
+    "next-auth": "4.24.7",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "swr": "^2.3.6",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "typescript": "^5",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
-    "eslint": "^9",
-    "eslint-config-next": "16.0.1"
+    "@types/node": "^20.19.24",
+    "autoprefixer": "^10.4.21",
+    "cross-env": "^7.0.3",
+    "postcss": "^8.5.6",
+    "prisma": "^6.19.0",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^3.4.18",
+    "tsx": "^4.20.6",
+    "typescript": "5.6.2"
   }
 }

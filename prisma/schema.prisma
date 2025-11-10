@@ -1,0 +1,135 @@
+// --- Generator / Datasource ---
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------- ENUMS ----------
+enum Role {
+  ADMIN
+  EMPLOYEE
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  REFUNDED
+  CANCELED
+}
+
+enum AdChannel {
+  Facebook
+  TikTok
+}
+
+// ---------- MODELS ----------
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  name      String?
+  role      Role     @default(EMPLOYEE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sales     Sale[]
+}
+
+/** ลูกค้า (CRM เบา ๆ) */
+model Customer {
+  id        String    @id @default(cuid())
+  name      String
+  phone     String?   @unique
+  email     String?   @unique
+  tags      String[]
+  note      String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  sales     Sale[]
+}
+
+model Product {
+  id           Int      @id @default(autoincrement())
+  code         String   @unique
+  name         String
+  cost         Decimal  @default(0) @db.Decimal(18, 2)
+  price        Decimal  @default(0) @db.Decimal(18, 2)
+  stock        Int      @default(0)
+  safetyStock  Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  items        SaleItem[]
+}
+
+model Sale {
+  id            String         @id @default(cuid())
+  docNo         String         @unique
+  docDate       DateTime
+  date          DateTime       @default(now())
+
+  // เก็บชื่อเดิมไว้เป็นสตริง (รองรับข้อมูลเก่า และใช้เป็น fallback ได้)
+  customer      String?
+  channel       String?
+
+  total         Decimal        @default(0) @db.Decimal(18, 2)
+  totalCost     Decimal        @default(0) @db.Decimal(18, 2)
+  status        String?
+  paymentStatus PaymentStatus  @default(PENDING)
+
+  createdBy     String
+  user          User           @relation(fields: [createdBy], references: [id])
+
+  // ความสัมพันธ์กับ Customer (อาจเว้นว่างสำหรับเรคอร์ดเก่า)
+  customerId    String?
+  customerRef   Customer?      @relation(fields: [customerId], references: [id])
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  items         SaleItem[]
+
+  @@index([createdBy])
+  @@index([date])
+  @@index([customerId])
+}
+
+model SaleItem {
+  id        Int     @id @default(autoincrement())
+  saleId    String
+  productId Int
+
+  qty       Int
+  price     Decimal @default(0) @db.Decimal(18, 2)
+  discount  Decimal @default(0) @db.Decimal(18, 2)
+  amount    Decimal @default(0) @db.Decimal(18, 2)
+
+  costEach  Decimal @default(0) @db.Decimal(18, 2)
+  cogs      Decimal @default(0) @db.Decimal(18, 2)
+
+  sale      Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@index([productId])
+}
+
+/** ค่าโฆษณารายวัน */
+model AdSpendDaily {
+  id           Int        @id @default(autoincrement())
+  date         DateTime   @db.Date
+  channel      AdChannel
+  campaignName String?
+  adsetName    String?
+  amount       Decimal    @default(0) @db.Decimal(18, 2)
+  createdAt    DateTime   @default(now())
+
+  @@index([date, channel])
+}

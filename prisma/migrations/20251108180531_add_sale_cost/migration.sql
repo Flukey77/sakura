@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "Sale" ADD COLUMN     "totalCost" DECIMAL(18,2) NOT NULL DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE "SaleItem" ADD COLUMN     "cost" DECIMAL(18,2) NOT NULL DEFAULT 0;

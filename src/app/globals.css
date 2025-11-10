@@ -1,26 +1,110 @@
-@import "tailwindcss";
+/* src/app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ---------- Base (รีเซ็ต + ฟอนต์ + สีพื้นหลัง) ---------- */
+@layer base {
+  html,
+  body {
+    @apply h-full;
+  }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  body {
+    @apply bg-slate-50 text-slate-800 antialiased;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  /* ใช้ focus-visible ให้สวยและเข้าถึงได้ */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-blue-500/40 ring-offset-2;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ---------- CSS ตัวช่วย ใช้ซ้ำได้ทั่วโปรเจกต์ ---------- */
+@layer components {
+  /* ปุ่มพื้นฐาน */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2
+           text-sm font-medium transition-colors duration-200
+           border border-slate-300 bg-white text-slate-700
+           hover:bg-slate-100 active:scale-[.99]
+           disabled:opacity-60 disabled:cursor-not-allowed;
+  }
+
+  /* ปุ่มหลัก */
+  .btn-primary {
+    @apply border-transparent bg-blue-600 text-white hover:bg-blue-700;
+  }
+
+  /* ปุ่มดำ (เช่น “บันทึก”) */
+  .btn-dark {
+    @apply border-transparent bg-slate-900 text-white hover:bg-black;
+  }
+
+  /* ปุ่มโปร่ง */
+  .btn-ghost {
+    @apply border-transparent bg-transparent text-slate-700 hover:bg-slate-100;
+  }
+
+  /* อินพุต/เซเล็กต์ */
+  .input {
+    @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm
+           placeholder:text-slate-400
+           focus:border-slate-400 focus:ring-2 focus:ring-slate-200;
+  }
+
+  .select {
+    @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm
+           focus:border-slate-400 focus:ring-2 focus:ring-slate-200;
+  }
+
+  /* การ์ด/บล็อค */
+  .card {
+    @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+  }
+
+  /* หัวตาราง/เซลล์ */
+  .th {
+    @apply px-5 py-3 text-left text-sm font-medium text-slate-500;
+  }
+  .td {
+    @apply px-5 py-3 text-sm text-slate-700;
+  }
+
+  /* แท็กสถานะ */
+  .badge {
+    @apply inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-medium;
+  }
+  .badge-success { @apply bg-emerald-100 text-emerald-700; }
+  .badge-warn    { @apply bg-amber-100  text-amber-700; }
+  .badge-mute    { @apply bg-slate-100  text-slate-600; }
+
+  /* กล่องสถิติบน Dashboard */
+  .stat-card {
+    @apply card p-4 flex items-center gap-4;
+  }
+  .stat-icon {
+    @apply grid place-items-center h-12 w-12 rounded-2xl bg-slate-100 text-slate-600;
+  }
+
+  /* Top bar */
+  .topbar {
+    @apply sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-slate-200;
+  }
+
+  /* Sidebar */
+  .sidebar-link {
+    @apply flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700
+           hover:bg-slate-100 transition-colors;
+  }
+  .sidebar-link.active {
+    @apply bg-slate-900 text-white hover:bg-slate-900;
+  }
+}
+
+/* ---------- Utilities เพิ่มเติม (ถ้าต้องการ) ---------- */
+@layer utilities {
+  .container-safe {
+    @apply mx-auto w-full max-w-[1200px] px-4 sm:px-6 lg:px-8;
+  }
 }
