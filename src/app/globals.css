@@ -1,4 +1,3 @@
-/* src/app/globals.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -8,10 +7,18 @@
   html,
   body {
     @apply h-full;
+    max-width: 100%;
+    overflow-x: hidden; /* กันล้นแนวนอน */
   }
 
   body {
     @apply bg-slate-50 text-slate-800 antialiased;
+  }
+
+  /* สื่อทุกชนิดให้ไม่ล้น */
+  img, canvas, svg, video {
+    max-width: 100%;
+    height: auto;
   }
 
   /* ใช้ focus-visible ให้สวยและเข้าถึงได้ */
@@ -20,91 +27,39 @@
   }
 }
 
-/* ---------- CSS ตัวช่วย ใช้ซ้ำได้ทั่วโปรเจกต์ ---------- */
+/* ---------- Components ---------- */
 @layer components {
-  /* ปุ่มพื้นฐาน */
-  .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2
-           text-sm font-medium transition-colors duration-200
-           border border-slate-300 bg-white text-slate-700
-           hover:bg-slate-100 active:scale-[.99]
-           disabled:opacity-60 disabled:cursor-not-allowed;
-  }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors duration-200 border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 active:scale-[.99] disabled:opacity-60 disabled:cursor-not-allowed; }
+  .btn-primary { @apply border-transparent bg-blue-600 text-white hover:bg-blue-700; }
+  .btn-dark { @apply border-transparent bg-slate-900 text-white hover:bg-black; }
+  .btn-ghost { @apply border-transparent bg-transparent text-slate-700 hover:bg-slate-100; }
 
-  /* ปุ่มหลัก */
-  .btn-primary {
-    @apply border-transparent bg-blue-600 text-white hover:bg-blue-700;
-  }
+  .input { @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-200; }
+  .select { @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-200; }
 
-  /* ปุ่มดำ (เช่น “บันทึก”) */
-  .btn-dark {
-    @apply border-transparent bg-slate-900 text-white hover:bg-black;
-  }
+  .card { @apply rounded-2xl border border-slate-200 bg-white shadow-sm; }
 
-  /* ปุ่มโปร่ง */
-  .btn-ghost {
-    @apply border-transparent bg-transparent text-slate-700 hover:bg-slate-100;
-  }
+  .th { @apply px-5 py-3 text-left text-sm font-medium text-slate-500; }
+  .td { @apply px-5 py-3 text-sm text-slate-700; }
 
-  /* อินพุต/เซเล็กต์ */
-  .input {
-    @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm
-           placeholder:text-slate-400
-           focus:border-slate-400 focus:ring-2 focus:ring-slate-200;
-  }
-
-  .select {
-    @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm
-           focus:border-slate-400 focus:ring-2 focus:ring-slate-200;
-  }
-
-  /* การ์ด/บล็อค */
-  .card {
-    @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
-  }
-
-  /* หัวตาราง/เซลล์ */
-  .th {
-    @apply px-5 py-3 text-left text-sm font-medium text-slate-500;
-  }
-  .td {
-    @apply px-5 py-3 text-sm text-slate-700;
-  }
-
-  /* แท็กสถานะ */
-  .badge {
-    @apply inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-medium;
-  }
+  .badge { @apply inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-medium; }
   .badge-success { @apply bg-emerald-100 text-emerald-700; }
   .badge-warn    { @apply bg-amber-100  text-amber-700; }
   .badge-mute    { @apply bg-slate-100  text-slate-600; }
 
-  /* กล่องสถิติบน Dashboard */
-  .stat-card {
-    @apply card p-4 flex items-center gap-4;
-  }
-  .stat-icon {
-    @apply grid place-items-center h-12 w-12 rounded-2xl bg-slate-100 text-slate-600;
-  }
+  .stat-card { @apply card p-4 flex items-center gap-4; }
+  .stat-icon { @apply grid place-items-center h-12 w-12 rounded-2xl bg-slate-100 text-slate-600; }
 
-  /* Top bar */
-  .topbar {
-    @apply sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-slate-200;
-  }
+  .topbar { @apply sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-slate-200; }
 
-  /* Sidebar */
-  .sidebar-link {
-    @apply flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700
-           hover:bg-slate-100 transition-colors;
-  }
-  .sidebar-link.active {
-    @apply bg-slate-900 text-white hover:bg-slate-900;
-  }
+  .sidebar-link { @apply flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 transition-colors; }
+  .sidebar-link.active { @apply bg-slate-900 text-white hover:bg-slate-900; }
+
+  /* ยูทิลิตี้ห่อ table ให้สไลด์แนวนอนได้บนมือถือ */
+  .table-wrap { @apply overflow-x-auto w-full; }
 }
 
-/* ---------- Utilities เพิ่มเติม (ถ้าต้องการ) ---------- */
+/* ---------- Utilities ---------- */
 @layer utilities {
-  .container-safe {
-    @apply mx-auto w-full max-w-[1200px] px-4 sm:px-6 lg:px-8;
-  }
+  .container-safe { @apply mx-auto w-full max-w-[1200px] px-4 sm:px-6 lg:px-8; }
 }
