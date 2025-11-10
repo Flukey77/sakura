@@ -14,9 +14,8 @@ import {
 } from "recharts";
 import { useRouter, useSearchParams } from "next/navigation";
 
-// ✅ กัน static export และกันยิง API ตอน build
+// กัน static export/ISR สำหรับเส้นทางนี้
 export const dynamic = "force-dynamic";
-export const revalidate = false;
 
 type Period = "today" | "7d" | "month" | "year";
 
@@ -205,7 +204,9 @@ function ReportsInner() {
                         <td className="py-2 pr-4 text-blue-600">{r.docNo}</td>
                         <td className="py-2 pr-4">{r.customer ?? "-"}</td>
                         <td className="py-2 pr-4">{r.channel ?? "-"}</td>
-                        <td className="py-2 pr-0 text-right">{fmt(Number(r.total || 0))}</td>
+                        <td className="py-2 pr-0 text-right">
+                          {fmt(Number(r.total || 0))}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -252,7 +253,7 @@ function ReportsInner() {
 }
 
 export default function ReportsPage() {
-  // ✅ ห่อ Suspense ตรงนี้ให้ useSearchParams ใช้งานใน Client ได้ตอน build
+  // ห่อ Suspense เพื่อให้ useSearchParams ใช้งานได้ตอน build
   return (
     <Suspense fallback={<div className="text-slate-400">กำลังโหลดรายงาน…</div>}>
       <ReportsInner />
