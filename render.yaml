@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: sakuraone
+    env: node
+    plan: free
+    runtime: node
+    nodeVersion: 20
+    buildCommand: "npm ci && npm run render-build"
+    startCommand: "npm start"
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # ใส่ค่าเหล่านี้ในแดชบอร์ดจะปลอดภัยกว่า (ไม่แนะนำ hard-code ในไฟล์)
+      # - key: DATABASE_URL
+      #   sync: false
+      # - key: DIRECT_URL
+      #   sync: false
+      # - key: NEXTAUTH_URL
+      #   sync: false
+      # - key: NEXTAUTH_SECRET
+      #   sync: false
