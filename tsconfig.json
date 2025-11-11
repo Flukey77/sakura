@@ -1,12 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
-    "allowJs": false,
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,                       // 👈 ต้องเปิดเพื่อให้ .next/types อ้างอิง .js ได้
+    "checkJs": false,                      // ไม่ตรวจ type ในไฟล์ JS
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
@@ -15,22 +12,16 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "verbatimModuleSyntax": true,          // แนะนำสำหรับ Next 14+
+    "forceConsistentCasingInFileNames": true,
     "jsx": "preserve",
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "src/*"
-      ]
+      "@/*": ["src/*"]
     },
-    "types": [
-      "node"
-    ],
+    "types": ["node"],
     "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ]
+    "plugins": [{ "name": "next" }]
   },
   "include": [
     "next-env.d.ts",
@@ -38,8 +29,5 @@
     "src/**/*.tsx",
     ".next/types/**/*.ts"
   ],
-  "exclude": [
-    "node_modules",
-    ".next/**/*"
-  ]
+  "exclude": ["node_modules", ".next/cache/**/*"]
 }

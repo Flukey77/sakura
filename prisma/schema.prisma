@@ -1,7 +1,5 @@
-// --- Generator / Datasource ---
-generator client {
-  provider = "prisma-client-js"
-}
+// prisma/schema.prisma
+generator client { provider = "prisma-client-js" }
 
 datasource db {
   provider  = "postgresql"
@@ -10,23 +8,9 @@ datasource db {
 }
 
 // ---------- ENUMS ----------
-enum Role {
-  ADMIN
-  EMPLOYEE
-}
-
-enum PaymentStatus {
-  PENDING
-  PARTIAL
-  PAID
-  REFUNDED
-  CANCELED
-}
-
-enum AdChannel {
-  Facebook
-  TikTok
-}
+enum Role { ADMIN EMPLOYEE }
+enum PaymentStatus { PENDING PARTIAL PAID REFUNDED CANCELED }
+enum AdChannel { Facebook TikTok }
 
 // ---------- MODELS ----------
 model User {
@@ -46,22 +30,13 @@ model Customer {
   name      String
   phone     String?   @unique
   email     String?   @unique
+  address   String?   // << address
   tags      String[]
-
-  /// ที่อยู่ลูกค้า (ใหม่)
-  address   String?
-
-  /// บันทึกเพิ่มเติม (ยังใช้ได้)
   note      String?
-
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
   sales     Sale[]
-
-  @@index([name])
-  @@index([phone])
-  @@index([email])
 }
 
 model Product {
@@ -71,13 +46,9 @@ model Product {
   cost         Decimal  @default(0) @db.Decimal(18, 2)
   price        Decimal  @default(0) @db.Decimal(18, 2)
   stock        Int      @default(0)
-
-  /// ค่าขั้นต่ำของสต็อกที่ต้องการ ถ้าต่ำกว่านี้ให้เตือน
   safetyStock  Int      @default(0)
-
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-
   items        SaleItem[]
 
   @@index([name])
@@ -90,7 +61,6 @@ model Sale {
   docDate       DateTime
   date          DateTime       @default(now())
 
-  // เก็บค่าเดิมเป็นสตริงเพื่อรองรับข้อมูลเก่า/ fallback
   customer      String?
   channel       String?
 
@@ -102,7 +72,6 @@ model Sale {
   createdBy     String
   user          User           @relation(fields: [createdBy], references: [id])
 
-  // ความสัมพันธ์กับลูกค้า (อาจว่างสำหรับเรคอร์ดเก่า)
   customerId    String?
   customerRef   Customer?      @relation(fields: [customerId], references: [id])
 
@@ -136,7 +105,6 @@ model SaleItem {
   @@index([productId])
 }
 
-/** ค่าโฆษณารายวัน */
 model AdSpendDaily {
   id           Int        @id @default(autoincrement())
   date         DateTime   @db.Date
