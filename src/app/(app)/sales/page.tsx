@@ -1,5 +1,4 @@
-﻿// src/app/(app)/sales/page.tsx
-"use client";
+﻿"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -9,6 +8,7 @@ export const dynamic = "force-dynamic";
 type Sale = {
   id: string;
   docNo: string;
+  docDate?: string | Date; // ← ใช้ค่านี้เป็นหลัก
   date: string | Date;
   customer: string | null;
   channel: string | null;
@@ -42,9 +42,9 @@ const fmtBaht = (n: number) =>
   (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const TABS = [
-  { key: "ALL", label: "ทั้งหมด" },
-  { key: "NEW", label: "รอโอน" },
-  { key: "PENDING", label: "รอชำระ" },
+  { key: "ALL",       label: "ทั้งหมด" },
+  { key: "NEW",       label: "รอโอน" },
+  { key: "PENDING",   label: "รอชำระ" },
   { key: "CONFIRMED", label: "ยืนยันแล้ว" },
   { key: "CANCELLED", label: "ยกเลิก" },
 ] as const;
@@ -77,13 +77,7 @@ function SalesContent() {
   const router = useRouter();
   const sp = useSearchParams();
 
-  const rawTab = (sp.get("status") || "ALL").toUpperCase();
-  const tab = (["ALL", "NEW", "PENDING", "CONFIRMED", "CANCELLED"] as const).includes(
-    rawTab as any
-  )
-    ? rawTab
-    : "ALL";
-
+  const tab = (sp.get("status") || "ALL").toUpperCase();
   const page = Math.max(1, Number(sp.get("page") || 1));
   const pageSize = Math.min(Math.max(5, Number(sp.get("pageSize") || 20)), 100);
 
@@ -108,10 +102,7 @@ function SalesContent() {
     }
   };
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, page, pageSize]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, page, pageSize]);
 
   const goto = (p: number) => {
     const params = new URLSearchParams(sp.toString());
@@ -149,29 +140,33 @@ function SalesContent() {
   const end = Math.min(totalPages, curPage + pageWindow);
   const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
 
+  // helper: แปลงวันที่เป็น dd/MM/yyyy (ปี ค.ศ. ตามฐานข้อมูล)
+  const fmtThaiDDMMYYYY = (x: string | Date | undefined) => {
+    if (!x) return "-";
+    const d = new Date(x);
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = d.getFullYear(); // ใช้ ค.ศ.
+    return `${dd}/${mm}/${yyyy}`;
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid lg:grid-cols-3 gap-4">
-        <div className="rounded-2xl border bg-white">
-          <div className="p-5">
-            <div className="text-slate-500">จำนวนออเดอร์</div>
-            <div className="text-3xl font-semibold mt-1">{data?.summary.count ?? 0}</div>
-          </div>
-        </div>
-        <div className="rounded-2xl border bg-white">
-          <div className="p-5">
-            <div className="text-slate-500">มูลค่าทั้งหมด (รายได้)</div>
-            <div className="text-3xl font-semibold mt-1">฿{fmtBaht(data?.summary.total ?? 0)}</div>
-          </div>
-        </div>
+        <div className="rounded-2xl border bg-white"><div className="p-5">
+          <div className="text-slate-500">จำนวนออเดอร์</div>
+          <div className="text-3xl font-semibold mt-1">{data?.summary.count ?? 0}</div>
+        </div></div>
+        <div className="rounded-2xl border bg-white"><div className="p-5">
+          <div className="text-slate-500">มูลค่าทั้งหมด (รายได้)</div>
+          <div className="text-3xl font-semibold mt-1">฿{fmtBaht(data?.summary.total ?? 0)}</div>
+        </div></div>
         <div className="rounded-2xl border bg-white">
           <div className="p-5 grid grid-cols-2 gap-2">
-            <div>
-              <div className="text-slate-500">ต้นทุนขาย</div>
+            <div><div className="text-slate-500">ต้นทุนขาย</div>
               <div className="text-xl font-semibold mt-1">฿{fmtBaht(data?.summary.cogs ?? 0)}</div>
             </div>
-            <div>
-              <div className="text-slate-500">กำไรขั้นต้น</div>
+            <div><div className="text-slate-500">กำไรขั้นต้น</div>
               <div className="text-xl font-semibold mt-1">฿{fmtBaht(data?.summary.gross ?? 0)}</div>
             </div>
           </div>
@@ -201,17 +196,8 @@ function SalesContent() {
           </button>
         ))}
         <div className="flex-1" />
-        <button
-          onClick={() => router.push("/sales/new")}
-          className="rounded-xl bg-blue-600 text-white px-4 py-2"
-        >
-          สร้าง
-        </button>
-        <button
-          onClick={load}
-          className="rounded-xl border px-4 py-2 disabled:opacity-60"
-          disabled={loading}
-        >
+        <button onClick={() => router.push("/sales/new")} className="rounded-xl bg-blue-600 text-white px-4 py-2">สร้าง</button>
+        <button onClick={load} className="rounded-xl border px-4 py-2 disabled:opacity-60" disabled={loading}>
           {loading ? "กำลังโหลด…" : "รีเฟรช"}
         </button>
       </div>
@@ -236,111 +222,51 @@ function SalesContent() {
             </tr>
           </thead>
           <tbody>
-            {!errorMsg && data && data.sales.length === 0 && (
-              <tr>
-                <td colSpan={7} className="py-10 text-center text-slate-500">
-                  ไม่มีข้อมูลในช่วงเวลานี้{" "}
-                  <button onClick={load} className="btn btn-secondary ml-3">
-                    รีเฟรช
-                  </button>
-                </td>
-              </tr>
+            {(!errorMsg && data && data.sales.length === 0) && (
+              <tr><td colSpan={7} className="py-10 text-center text-slate-500">
+                ไม่มีข้อมูลในช่วงเวลานี้ <button onClick={load} className="btn btn-secondary ml-3">รีเฟรช</button>
+              </td></tr>
             )}
 
             {sales.map((s) => (
               <tr key={s.id} className="border-t">
-                <td className="py-2 px-4">
-                  {new Date(s.date).toLocaleDateString("th-TH")}
-                </td>
+                <td className="py-2 px-4">{fmtThaiDDMMYYYY(s.docDate ?? s.date)}</td>
                 <td className="py-2 px-4">{s.docNo}</td>
                 <td className="py-2 px-4">{s.customer || "-"}</td>
                 <td className="py-2 px-4">{s.channel || "-"}</td>
                 <td className="py-2 px-4">฿{fmtBaht(Number(s.total || 0))}</td>
-                <td className="py-2 px-4">
-                  <Pill status={(s.status || "NEW").toUpperCase()} />
-                </td>
+                <td className="py-2 px-4"><Pill status={(s.status || "NEW").toUpperCase()} /></td>
                 <td className="py-2 px-4">
                   <div className="flex gap-2 justify-end">
-                    <button
-                      className="rounded-lg border px-3 py-1 hover:bg-slate-50"
-                      onClick={() => changeStatus(s.id, "PENDING")}
-                      disabled={busy}
-                    >
-                      ทำเป็นรอชำระ
-                    </button>
-                    <button
-                      className="rounded-lg border px-3 py-1 hover:bg-slate-50"
-                      onClick={() => changeStatus(s.id, "CONFIRMED")}
-                      disabled={busy}
-                    >
-                      ทำเป็นยืนยันแล้ว
-                    </button>
-                    <button
-                      className="rounded-lg border px-3 py-1 hover:bg-red-50 text-red-600"
-                      onClick={() => changeStatus(s.id, "CANCELLED")}
-                      disabled={busy}
-                    >
-                      ยกเลิก
-                    </button>
+                    <button className="rounded-lg border px-3 py-1 hover:bg-slate-50" onClick={() => changeStatus(s.id, "PENDING")} disabled={busy}>ทำเป็นรอชำระ</button>
+                    <button className="rounded-lg border px-3 py-1 hover:bg-slate-50" onClick={() => changeStatus(s.id, "CONFIRMED")} disabled={busy}>ทำเป็นยืนยันแล้ว</button>
+                    <button className="rounded-lg border px-3 py-1 hover:bg-red-50 text-red-600" onClick={() => changeStatus(s.id, "CANCELLED")} disabled={busy}>ยกเลิก</button>
                   </div>
                 </td>
               </tr>
             ))}
 
-            {loading &&
-              Array.from({ length: 5 }).map((_, i) => (
-                <tr key={`skeleton-${i}`} className="border-t animate-pulse">
-                  <td className="py-3 px-4">
-                    <div className="h-3 w-16 bg-slate-200 rounded" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-3 w-28 bg-slate-200 rounded" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-3 w-24 bg-slate-200 rounded" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-3 w-20 bg-slate-200 rounded" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-3 w-24 bg-slate-200 rounded" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-5 w-16 bg-slate-200 rounded-full" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-8 w-40 bg-slate-200 rounded-lg ml-auto" />
-                  </td>
-                </tr>
-              ))}
+            {loading && Array.from({ length: 5 }).map((_, i) => (
+              <tr key={`skeleton-${i}`} className="border-t animate-pulse">
+                <td className="py-3 px-4"><div className="h-3 w-16 bg-slate-200 rounded" /></td>
+                <td className="py-3 px-4"><div className="h-3 w-28 bg-slate-200 rounded" /></td>
+                <td className="py-3 px-4"><div className="h-3 w-24 bg-slate-200 rounded" /></td>
+                <td className="py-3 px-4"><div className="h-3 w-20 bg-slate-200 rounded" /></td>
+                <td className="py-3 px-4"><div className="h-3 w-24 bg-slate-200 rounded" /></td>
+                <td className="py-3 px-4"><div className="h-5 w-16 bg-slate-200 rounded-full" /></td>
+                <td className="py-3 px-4"><div className="h-8 w-40 bg-slate-200 rounded-lg ml-auto" /></td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
 
       <div className="flex items-center justify-center gap-2">
-        <PageBtn disabled={curPage <= 1} onClick={() => goto(curPage - 1)}>
-          «
-        </PageBtn>
-        {start > 1 && (
-          <>
-            <PageBtn onClick={() => goto(1)}>1</PageBtn>
-            {start > 2 && <span className="px-1 text-slate-400">…</span>}
-          </>
-        )}
-        {pages.map((p) => (
-          <PageBtn key={p} active={p === curPage} onClick={() => goto(p)}>
-            {p}
-          </PageBtn>
-        ))}
-        {end < totalPages && (
-          <>
-            {end < totalPages - 1 && <span className="px-1 text-slate-400">…</span>}
-            <PageBtn onClick={() => goto(totalPages)}>{totalPages}</PageBtn>
-          </>
-        )}
-        <PageBtn disabled={curPage >= totalPages} onClick={() => goto(curPage + 1)}>
-          »
-        </PageBtn>
+        <PageBtn disabled={curPage <= 1} onClick={() => goto(curPage - 1)}>«</PageBtn>
+        {start > 1 && (<><PageBtn onClick={() => goto(1)}>1</PageBtn>{start > 2 && <span className="px-1 text-slate-400">…</span>}</>)}
+        {pages.map((p) => (<PageBtn key={p} active={p === curPage} onClick={() => goto(p)}>{p}</PageBtn>))}
+        {end < totalPages && (<>{end < totalPages - 1 && <span className="px-1 text-slate-400">…</span>}<PageBtn onClick={() => goto(totalPages)}>{totalPages}</PageBtn></>)}
+        <PageBtn disabled={curPage >= totalPages} onClick={() => goto(curPage + 1)}>»</PageBtn>
       </div>
     </div>
   );
