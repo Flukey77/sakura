@@ -33,6 +33,7 @@ export default function Sidebar() {
     { href: "/products",  label: "คลังสินค้า/สาขา",  emoji: "🗃️" },
     { href: "/shipping",  label: "บริการขนส่ง",      emoji: "🚚" },
     { href: "/reports",   label: "รายงาน",           emoji: "📈" },
+    { href: "/ads",       label: "ภาพรวมโฆษณา",      emoji: "📣" }, // ← เพิ่มหน้าใหม่
   ];
 
   const ops: Item[] = [
