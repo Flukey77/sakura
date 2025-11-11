@@ -1,4 +1,3 @@
-// src/app/(app)/products/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -30,7 +29,7 @@ export default function ProductsPage() {
   // search + pagination
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
+  const [pageSize] = useState(20); // ← 20 รายการต่อหน้า
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
 
@@ -40,7 +39,7 @@ export default function ProductsPage() {
 
   // row actions
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [savingSafetyId, setSavingSafetyId] = useState<number | null>(null);
+  const [savingRowId, setSavingRowId] = useState<number | null>(null);
 
   async function load(p = page) {
     setLoading(true);
@@ -100,38 +99,43 @@ export default function ProductsPage() {
     }
   }
 
-  // ←— ใหม่: บันทึก Safety โดยรับค่าปัจจุบันจาก input โดยตรง
-  async function saveSafetyValue(id: number, value: number) {
-    const n = Number(value);
-    if (!Number.isInteger(n) || n < 0) {
+  // อัปเดตค่าบน state ของแถว
+  function updateRow<K extends keyof Product>(id: number, key: K, val: Product[K]) {
+    setRows((rows) => rows.map((r) => (r.id === id ? { ...r, [key]: val } : r)));
+  }
+
+  // บันทึกแถวเดียว (ADMIN เท่านั้น – ถ้าไม่ใช่จะได้ 403)
+  async function saveRow(p: Product) {
+    const payload = {
+      stock: Number(p.stock ?? 0),
+      safetyStock: Number(p.safetyStock ?? 0),
+    };
+    if (!Number.isInteger(payload.stock) || payload.stock < 0) {
+      alert("สต๊อกต้องเป็นจำนวนเต็มไม่ติดลบ");
+      return;
+    }
+    if (!Number.isInteger(payload.safetyStock) || payload.safetyStock < 0) {
       alert("Safety Stock ต้องเป็นจำนวนเต็มไม่ติดลบ");
       return;
     }
-    setSavingSafetyId(id);
+
+    setSavingRowId(p.id);
     try {
-      const res = await fetch(`/api/products/${id}/safety`, {
+      const res = await fetch(`/api/products/${p.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ safetyStock: n }),
+        body: JSON.stringify(payload),
       });
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok) {
-        alert(j?.error || "บันทึก Safety ไม่สำเร็จ");
-      } else {
-        await load(page);
+        // 401 / 403 จะเข้าที่นี่
+        alert(j?.error || "บันทึกไม่สำเร็จ (ต้องเป็นผู้ดูแลระบบ)");
+        return;
       }
+      await load(page);
     } finally {
-      setSavingSafetyId(null);
+      setSavingRowId(null);
     }
-  }
-
-  // ยังเผื่อไว้ใช้จากปุ่ม “บันทึก” ที่อ่านค่าจาก state (หลัง onChange แล้ว)
-  async function saveSafety(p: Product) {
-    return saveSafetyValue(p.id, Number(p.safetyStock ?? 0));
-  }
-
-  function updateRow<K extends keyof Product>(id: number, key: K, val: Product[K]) {
-    setRows((rows) => rows.map((r) => (r.id === id ? { ...r, [key]: val } : r)));
   }
 
   // ตัวช่วยทำเลขหน้า “… 3 4 [5] 6 7 …”
@@ -247,7 +251,27 @@ export default function ProductsPage() {
                       <td className="py-2 pr-3">{p.name}</td>
                       <td className="py-2 pr-3">{p.cost}</td>
                       <td className="py-2 pr-3">{p.price}</td>
-                      <td className="py-2 pr-3">{p.stock}</td>
+
+                      {/* แก้ไขสต๊อกได้ */}
+                      <td className="py-2 pr-3">
+                        <input
+                          className="input w-24"
+                          type="number"
+                          value={p.stock ?? 0}
+                          onChange={(e) => updateRow(p.id, "stock", Number(e.target.value))}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              saveRow({
+                                ...p,
+                                stock: Number((e.currentTarget as HTMLInputElement).value),
+                              });
+                            }
+                          }}
+                        />
+                      </td>
+
+                      {/* แก้ไข Safety ได้ */}
                       <td className="py-2 pr-3">
                         <input
                           className="input w-24"
@@ -259,22 +283,25 @@ export default function ProductsPage() {
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
-                              const current = Number(
-                                (e.currentTarget as HTMLInputElement).value
-                              );
-                              saveSafetyValue(p.id, current); // ← ใช้ค่าจากอินพุตทันที
+                              saveRow({
+                                ...p,
+                                safetyStock: Number(
+                                  (e.currentTarget as HTMLInputElement).value
+                                ),
+                              });
                             }
                           }}
                         />
                       </td>
+
                       <td className="py-2">
                         <div className="flex gap-2 justify-end">
                           <button
                             className="btn"
-                            onClick={() => saveSafety(p)}
-                            disabled={savingSafetyId === p.id}
+                            onClick={() => saveRow(p)}
+                            disabled={savingRowId === p.id}
                           >
-                            {savingSafetyId === p.id ? "กำลังบันทึก..." : "บันทึก"}
+                            {savingRowId === p.id ? "กำลังบันทึก..." : "บันทึก"}
                           </button>
                           <button
                             className="btn border-red-200 text-red-600 hover:bg-red-50"
