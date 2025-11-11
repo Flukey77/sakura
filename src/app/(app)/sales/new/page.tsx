@@ -11,6 +11,14 @@ const to2 = (n: any) => {
   return Math.round(x * 100) / 100;
 };
 
+const todayYMD = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+};
+
 export default function NewSalePage() {
   const router = useRouter();
 
@@ -127,12 +135,20 @@ export default function NewSalePage() {
     const f = new FormData(e.currentTarget);
     const rawItems = items
       .filter((it) => it.code.trim() && Number(it.qty) > 0)
-      .map((it) => ({
-        code: it.code.trim(),
-        name: (it.name || it.code).trim(),
-        qty: Number(it.qty || 0),
-        price: to2(it.price),
-        discount: to2(it.discount || 0),
+      .map((it) => ([
+        it.code.trim(),
+        (it.name || it.code).trim(),
+        Number(it.qty || 0),
+        to2(it.price),
+        to2(it.discount || 0),
+      ]))
+      // ลด payload: แปลงเป็น array แล้วค่อย map กลับเป็น object
+      .map(([code, name, qty, price, discount]) => ({
+        code: code as string,
+        name: name as string,
+        qty: qty as number,
+        price: price as number,
+        discount: discount as number,
       }));
 
     if (!rawItems.length) {
@@ -142,15 +158,16 @@ export default function NewSalePage() {
     }
 
     const payload = {
-      // ❌ ไม่บังคับเลขเอกสาร ปล่อยให้แบ็กเอนด์ออกเลข -> ลดปัญหาเลขชน
+      // ไม่บังคับเลขเอกสาร ปล่อยให้แบ็กเอนด์ออกเลข
       docNo: String(f.get("docNo") || "").trim() || undefined,
-      docDate: String(f.get("docDate") || new Date().toISOString()),
+      docDate: String(f.get("docDate") || todayYMD()),
       channel: String(f.get("channel") || "") || null,
       customer: {
-        name: String(f.get("cusName") || ""),
-        phone: String(f.get("cusPhone") || ""),
-        email: String(f.get("cusEmail") || ""),
-        address: String(f.get("cusAddr") || ""),
+        // **สำคัญ:** ส่งเฉพาะข้อมูล ไม่ส่ง id → ให้ API ตัดสินใจ findOrCreate
+        name: String(f.get("cusName") || "").trim(),
+        phone: String(f.get("cusPhone") || "").trim(),
+        email: String(f.get("cusEmail") || "").trim(),
+        address: String(f.get("cusAddr") || "").trim(),
       },
       items: rawItems,
     };
@@ -221,12 +238,11 @@ export default function NewSalePage() {
             <div className="p-5 space-y-4">
               <div>
                 <label className="text-sm">รายการ</label>
-                {/* ไม่ required และไม่ใส่ default ปล่อยให้แบ็กเอนด์ออกเลข */}
                 <input name="docNo" className="input mt-1 w-full" placeholder="(ปล่อยว่างเพื่อให้ระบบออกเลข)" />
               </div>
               <div>
                 <label className="text-sm">วันที่</label>
-                <input name="docDate" type="date" className="input mt-1 w-full" />
+                <input name="docDate" type="date" className="input mt-1 w-full" defaultValue={todayYMD()} />
               </div>
               <div>
                 <label className="text-sm">อ้างอิง</label>

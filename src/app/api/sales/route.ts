@@ -1,5 +1,4 @@
-﻿// src/app/api/sales/route.ts
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
@@ -94,6 +93,7 @@ async function findOrCreateCustomer(reqCust: any) {
       }
       return { id: byId.id, name: byId.name };
     }
+    // ถ้า id หาไม่เจอ ให้ไปต่อเพื่อพิจารณาสร้าง/หาเอง
   }
 
   // หาเดิมจาก phone/email/name

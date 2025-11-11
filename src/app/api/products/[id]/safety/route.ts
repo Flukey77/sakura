@@ -1,6 +1,7 @@
+// src/app/api/products/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 /** GET /api/products?q=&page=&pageSize= */
 export async function GET(req: Request) {
@@ -12,6 +13,7 @@ export async function GET(req: Request) {
 
   let where: Prisma.ProductWhereInput | undefined;
   if (q) {
+    // 👈 สำคัญ: บังคับ type ให้เป็น Prisma.QueryMode
     const mode: Prisma.QueryMode = "insensitive";
     where = {
       OR: [
@@ -73,7 +75,6 @@ export async function POST(req: Request) {
       data: {
         code: body.code.trim(),
         name: body.name.trim(),
-        // Decimal column รับ string ได้ปลอดภัยเรื่องทศนิยม
         cost: String(body.cost ?? 0),
         price: String(body.price ?? 0),
         stock: Number(body.stock ?? 0),
