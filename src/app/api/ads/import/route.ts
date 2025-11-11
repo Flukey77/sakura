@@ -52,8 +52,8 @@ export async function POST(req: Request) {
     // map channel text -> enum
     const toChannel = (s: string | undefined): AdChannel | null => {
       const v = (s || "").trim().toLowerCase();
-      if (v === "facebook") return AdChannel.Facebook;
-      if (v === "tiktok") return AdChannel.TikTok;
+      if (v === "facebook") return AdChannel.FACEBOOK;
+      if (v === "tiktok") return AdChannel.TIKTOK;
       return null;
     };
 
