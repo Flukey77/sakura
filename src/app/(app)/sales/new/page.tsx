@@ -1,271 +1,338 @@
-// src/app/(app)/sales/page.tsx
+// src/app/(app)/products/page.tsx
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
-export const dynamic = "force-dynamic";
-
-type Sale = {
-  id: string;
-  docNo: string;
-  date: string | Date;
-  customer: string | null;
-  channel: string | null;
-  total: number;
-  status: "NEW" | "PENDING" | "CONFIRMED" | "CANCELLED" | string;
-  user?: { id: string; username: string; name: string | null };
+type Product = {
+  id: number;
+  code: string;
+  name: string;
+  cost: string;
+  price: string;
+  stock: number;
+  safetyStock?: number | null;
+  createdAt: string;
 };
 
 type ApiRes = {
   ok: boolean;
-  summary: { count: number; total: number; cogs: number; gross: number };
-  counters: Record<"ALL" | "NEW" | "PENDING" | "CONFIRMED" | "CANCELLED", number>;
-  sales: (Sale & { items?: any[] })[];
-  pagination?: { page: number; pageSize: number; totalCount: number; totalPages: number };
-  message?: string;
+  items: Product[];
+  page: number;
+  pageSize: number;
+  total: number;
+  pages: number;
 };
 
-const TH_STATUS: Record<string, { label: string; cls: string }> = {
-  NEW: { label: "รอโอน", cls: "bg-amber-100 text-amber-700" },
-  PENDING: { label: "รอชำระ", cls: "bg-orange-100 text-orange-700" },
-  CONFIRMED: { label: "ยืนยันแล้ว", cls: "bg-emerald-100 text-emerald-700" },
-  CANCELLED: { label: "ยกเลิก", cls: "bg-slate-200 text-slate-700" },
-};
+export default function ProductsPage() {
+  const [rows, setRows] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
 
-function Pill({ status }: { status: string }) {
-  const m = TH_STATUS[status] ?? { label: status, cls: "bg-slate-100 text-slate-700" };
-  return <span className={`px-2 py-0.5 rounded-full text-xs ${m.cls}`}>{m.label}</span>;
-}
+  // search + pagination
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
-const fmtBaht = (n: number) =>
-  (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // create form
+  const [form, setForm] = useState({ code: "", name: "", cost: "", price: "", stock: 0 });
+  const [creating, setCreating] = useState(false);
 
-const TABS = [
-  { key: "ALL",       label: "ทั้งหมด" },
-  { key: "NEW",       label: "รอโอน" },
-  { key: "PENDING",   label: "รอชำระ" },
-  { key: "CONFIRMED", label: "ยืนยันแล้ว" },
-  { key: "CANCELLED", label: "ยกเลิก" },
-] as const;
+  // row actions
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [savingSafetyId, setSavingSafetyId] = useState<number | null>(null);
 
-function PageBtn({
-  active,
-  disabled,
-  children,
-  onClick,
-}: {
-  active?: boolean;
-  disabled?: boolean;
-  children: React.ReactNode;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      className={`min-w-9 px-3 py-1.5 rounded-xl border ${
-        active ? "bg-slate-900 text-white border-slate-900" : "bg-white"
-      } disabled:opacity-50`}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-function SalesContent() {
-  const router = useRouter();
-  const sp = useSearchParams();
-
-  const tab = (sp.get("status") || "ALL").toUpperCase();
-  const page = Math.max(1, Number(sp.get("page") || 1));
-  const pageSize = Math.min(Math.max(5, Number(sp.get("pageSize") || 20)), 100);
-
-  const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [data, setData] = useState<ApiRes | null>(null);
-
-  const load = async () => {
+  async function load(p = page) {
     setLoading(true);
-    setErrorMsg(null);
     try {
-      const url = `/api/sales?status=${tab}&page=${page}&pageSize=${pageSize}`;
+      const url = `/api/products?q=${encodeURIComponent(q)}&page=${p}&pageSize=${pageSize}`;
       const res = await fetch(url, { cache: "no-store" });
-      const j = (await res.json()) as ApiRes;
-      if (!res.ok || j.ok === false) throw new Error(j?.message || "โหลดข้อมูลล้มเหลว");
-      setData(j);
-    } catch (e: any) {
-      setErrorMsg(e?.message || "โหลดข้อมูลล้มเหลว");
+      const j: ApiRes = await res.json();
+      setRows(j.items ?? []);
+      setPages(j.pages ?? 1);
+      setTotal(j.total ?? 0);
+      setPage(j.page ?? p);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, page, pageSize]);
+  useEffect(() => {
+    load(1);
+  }, []); // first load
 
-  const goto = (p: number) => {
-    const params = new URLSearchParams(sp.toString());
-    params.set("status", tab);
-    params.set("page", String(Math.max(1, p)));
-    params.set("pageSize", String(pageSize));
-    router.push(`/sales?${params.toString()}`);
-  };
+  const list = useMemo(() => rows, [rows]);
 
-  const changeStatus = async (id: string, status: string) => {
-    if (!confirm(`ยืนยันเปลี่ยนสถานะเป็น "${TH_STATUS[status]?.label || status}" ?`)) return;
-    setBusy(true);
+  async function addProduct() {
+    setCreating(true);
     try {
-      const res = await fetch(`/api/sales/${id}`, {
+      const res = await fetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(j?.error || j?.message || "create failed");
+      setForm({ code: "", name: "", cost: "", price: "", stock: 0 });
+      await load(1);
+      alert("เพิ่มสินค้าเรียบร้อย");
+    } catch (e: any) {
+      alert(e?.message ?? "error");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function deleteProduct(id: number, displayName: string) {
+    if (!confirm(`ต้องการลบสินค้า "${displayName}" หรือไม่?`)) return;
+    const key = String(id);
+    setBusyKey(key);
+    try {
+      const res = await fetch(`/api/products/${id}`, { method: "DELETE" });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        alert(j?.error || j?.message || "ลบไม่สำเร็จ");
+        return;
+      }
+      await load(page);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  // บันทึก Safety จากค่าปัจจุบันใน input โดยตรง
+  async function saveSafetyValue(id: number, value: number) {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 0) {
+      alert("Safety Stock ต้องเป็นจำนวนเต็มไม่ติดลบ");
+      return;
+    }
+    setSavingSafetyId(id);
+    try {
+      const res = await fetch(`/api/products/${id}/safety`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ safetyStock: n }),
       });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j?.message || "อัปเดตไม่สำเร็จ");
-      await load();
-    } catch (e: any) {
-      alert(e?.message || "อัปเดตไม่สำเร็จ");
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        alert(j?.error || "บันทึก Safety ไม่สำเร็จ");
+      } else {
+        await load(page);
+      }
     } finally {
-      setBusy(false);
+      setSavingSafetyId(null);
     }
-  };
+  }
 
-  const sales = useMemo(() => data?.sales ?? [], [data]);
-  const totalPages = data?.pagination?.totalPages ?? 1;
-  const curPage = data?.pagination?.page ?? page;
+  // เผื่อกดจากปุ่ม “บันทึก” (หลัง onChange แล้ว)
+  async function saveSafety(p: Product) {
+    return saveSafetyValue(p.id, Number(p.safetyStock ?? 0));
+  }
 
-  const pageWindow = 2;
-  const start = Math.max(1, curPage - pageWindow);
-  const end = Math.min(totalPages, curPage + pageWindow);
-  const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  function updateRow<K extends keyof Product>(id: number, key: K, val: Product[K]) {
+    setRows((rows) => rows.map((r) => (r.id === id ? { ...r, [key]: val } : r)));
+  }
+
+  // ตัวช่วยทำเลขหน้า “… 3 4 [5] 6 7 …”
+  function pageNumbers(curr: number, totalPages: number, span = 2) {
+    const start = Math.max(1, curr - span);
+    const end = Math.min(totalPages, curr + span);
+    const nums: (number | "…")[] = [];
+    if (start > 1) {
+      nums.push(1);
+      if (start > 2) nums.push("…");
+    }
+    for (let i = start; i <= end; i++) nums.push(i);
+    if (end < totalPages) {
+      if (end < totalPages - 1) nums.push("…");
+      nums.push(totalPages);
+    }
+    return nums;
+  }
 
   return (
     <div className="space-y-6">
-      <div className="grid lg:grid-cols-3 gap-4">
-        <div className="rounded-2xl border bg-white"><div className="p-5">
-          <div className="text-slate-500">จำนวนออเดอร์</div>
-          <div className="text-3xl font-semibold mt-1">{data?.summary.count ?? 0}</div>
-        </div></div>
-        <div className="rounded-2xl border bg-white"><div className="p-5">
-          <div className="text-slate-500">มูลค่าทั้งหมด (รายได้)</div>
-          <div className="text-3xl font-semibold mt-1">฿{fmtBaht(data?.summary.total ?? 0)}</div>
-        </div></div>
-        <div className="rounded-2xl border bg-white">
-          <div className="p-5 grid grid-cols-2 gap-2">
-            <div><div className="text-slate-500">ต้นทุนขาย</div>
-              <div className="text-xl font-semibold mt-1">฿{fmtBaht(data?.summary.cogs ?? 0)}</div>
-            </div>
-            <div><div className="text-slate-500">กำไรขั้นต้น</div>
-              <div className="text-xl font-semibold mt-1">฿{fmtBaht(data?.summary.gross ?? 0)}</div>
-            </div>
+      {/* หัว + ค้นหา */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">คลังสินค้า/สินค้า</h1>
+        <div className="flex gap-2">
+          <input
+            className="input w-[260px]"
+            placeholder="ค้นหา รหัส/ชื่อสินค้า"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && load(1)}
+          />
+          <button className="btn" onClick={() => load(1)}>
+            ค้นหา
+          </button>
+        </div>
+      </div>
+
+      {/* ฟอร์มเพิ่มสินค้า */}
+      <div className="card">
+        <div className="card-body grid grid-cols-1 md:grid-cols-6 gap-3">
+          <input
+            className="input"
+            placeholder="รหัสสินค้า"
+            value={form.code}
+            onChange={(e) => setForm({ ...form, code: e.target.value })}
+          />
+          <input
+            className="input"
+            placeholder="ชื่อสินค้า"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+          <input
+            className="input"
+            placeholder="ราคาทุน"
+            value={form.cost}
+            onChange={(e) => setForm({ ...form, cost: e.target.value })}
+          />
+          <input
+            className="input"
+            placeholder="ราคาขาย"
+            value={form.price}
+            onChange={(e) => setForm({ ...form, price: e.target.value })}
+          />
+          <input
+            className="input"
+            placeholder="สต็อก"
+            type="number"
+            value={form.stock}
+            onChange={(e) => setForm({ ...form, stock: Number(e.target.value) })}
+          />
+          <button className="btn btn-primary" disabled={creating} onClick={addProduct}>
+            {creating ? "กำลังบันทึก..." : "เพิ่ม"}
+          </button>
+        </div>
+      </div>
+
+      {/* ตารางสินค้า */}
+      <div className="card">
+        <div className="card-body overflow-x-auto">
+          <table className="w-full min-w-[960px] text-sm">
+            <thead>
+              <tr className="text-left text-slate-500 border-b">
+                <th className="py-3 pr-3">รหัส</th>
+                <th className="py-3 pr-3">ชื่อ</th>
+                <th className="py-3 pr-3">ทุน</th>
+                <th className="py-3 pr-3">ขาย</th>
+                <th className="py-3 pr-3">สต็อก</th>
+                <th className="py-3 pr-3">Safety</th>
+                <th className="py-3 w-40 text-right">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td className="py-6" colSpan={7}>
+                    Loading…
+                  </td>
+                </tr>
+              ) : !list.length ? (
+                <tr>
+                  <td className="py-6 text-center text-slate-400" colSpan={7}>
+                    ไม่พบข้อมูล
+                  </td>
+                </tr>
+              ) : (
+                list.map((p) => {
+                  const key = String(p.id);
+                  return (
+                    <tr key={p.id} className="border-t">
+                      <td className="py-2 pr-3">{p.code}</td>
+                      <td className="py-2 pr-3">{p.name}</td>
+                      <td className="py-2 pr-3">{p.cost}</td>
+                      <td className="py-2 pr-3">{p.price}</td>
+                      <td className="py-2 pr-3">{p.stock}</td>
+                      <td className="py-2 pr-3">
+                        <input
+                          className="input w-24"
+                          type="number"
+                          value={p.safetyStock ?? 0}
+                          onChange={(e) => updateRow(p.id, "safetyStock", Number(e.target.value))}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              const current = Number((e.currentTarget as HTMLInputElement).value);
+                              saveSafetyValue(p.id, current);
+                            }
+                          }}
+                        />
+                      </td>
+                      <td className="py-2">
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            className="btn"
+                            onClick={() => saveSafety(p)}
+                            disabled={savingSafetyId === p.id}
+                          >
+                            {savingSafetyId === p.id ? "กำลังบันทึก..." : "บันทึก"}
+                          </button>
+                          <button
+                            className="btn border-red-200 text-red-600 hover:bg-red-50"
+                            disabled={busyKey === key}
+                            onClick={() => deleteProduct(p.id, p.name)}
+                          >
+                            {busyKey === key ? "กำลังลบ..." : "ลบ"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+
+          {/* ตัวแบ่งหน้า */}
+          <div className="mt-4 flex items-center justify-center gap-2">
+            <button
+              className="rounded-xl border px-3 py-1.5 disabled:opacity-50"
+              onClick={() => load(Math.max(1, page - 1))}
+              disabled={loading || page <= 1}
+              aria-label="ก่อนหน้า"
+            >
+              «
+            </button>
+
+            {pageNumbers(page, pages).map((n, i) =>
+              n === "…" ? (
+                <span key={`dots-${i}`} className="px-2 text-slate-400">
+                  …
+                </span>
+              ) : (
+                <button
+                  key={n}
+                  onClick={() => load(n)}
+                  className={`px-3 py-1.5 rounded-xl border ${
+                    n === page ? "bg-slate-900 text-white border-slate-900" : "bg-white"
+                  }`}
+                  disabled={loading}
+                >
+                  {n}
+                </button>
+              )
+            )}
+
+            <button
+              className="rounded-xl border px-3 py-1.5 disabled:opacity-50"
+              onClick={() => load(Math.min(pages, page + 1)))}
+              disabled={loading || page >= pages}
+              aria-label="ถัดไป"
+            >
+              »
+            </button>
+          </div>
+
+          <div className="mt-2 text-center text-sm text-slate-500">
+            แสดงหน้า {page}/{pages} — รวม {total.toLocaleString()} รายการ
           </div>
         </div>
       </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => {
-              const params = new URLSearchParams(sp.toString());
-              params.set("status", t.key);
-              params.set("page", "1");
-              params.set("pageSize", String(pageSize));
-              router.push(`/sales?${params.toString()}`);
-            }}
-            className={`px-3 py-1.5 rounded-xl border ${
-              tab === t.key ? "bg-slate-900 text-white border-slate-900" : "bg-white"
-            }`}
-            disabled={loading}
-          >
-            {t.label}
-            {typeof data?.counters?.[t.key] === "number" && (
-              <span className="ml-2 text-slate-500">{data?.counters?.[t.key]}</span>
-            )}
-          </button>
-        ))}
-        <div className="flex-1" />
-        <button onClick={() => router.push("/sales/new")} className="rounded-xl bg-blue-600 text-white px-4 py-2">สร้าง</button>
-        <button onClick={load} className="rounded-xl border px-4 py-2 disabled:opacity-60" disabled={loading}>
-          {loading ? "กำลังโหลด…" : "รีเฟรช"}
-        </button>
-      </div>
-
-      {errorMsg && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
-          {errorMsg} <button onClick={load} className="btn btn-secondary ml-3">ลองใหม่</button>
-        </div>
-      )}
-
-      <div className="rounded-2xl border bg-white overflow-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-slate-500 border-b">
-              <th className="py-3 px-4 w-[120px]">วันที่</th>
-              <th className="py-3 px-4">เลขเอกสาร</th>
-              <th className="py-3 px-4">ลูกค้า</th>
-              <th className="py-3 px-4 w-[160px]">ช่องทาง</th>
-              <th className="py-3 px-4 w-[160px]">มูลค่า</th>
-              <th className="py-3 px-4 w-[130px]">สถานะ</th>
-              <th className="py-3 px-4 w-[220px] text-right">จัดการ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(!errorMsg && data && data.sales.length === 0) && (
-              <tr><td colSpan={7} className="py-10 text-center text-slate-500">
-                ไม่มีข้อมูลในช่วงเวลานี้ <button onClick={load} className="btn btn-secondary ml-3">รีเฟรช</button>
-              </td></tr>
-            )}
-
-            {data?.sales.map((s) => (
-              <tr key={s.id} className="border-t">
-                <td className="py-2 px-4">{new Date(s.date).toLocaleDateString("th-TH")}</td>
-                <td className="py-2 px-4">{s.docNo}</td>
-                <td className="py-2 px-4">{s.customer || "-"}</td>
-                <td className="py-2 px-4">{s.channel || "-"}</td>
-                <td className="py-2 px-4">฿{fmtBaht(Number(s.total || 0))}</td>
-                <td className="py-2 px-4"><Pill status={(s.status || "NEW").toUpperCase()} /></td>
-                <td className="py-2 px-4">
-                  <div className="flex gap-2 justify-end">
-                    <button className="rounded-lg border px-3 py-1 hover:bg-slate-50" onClick={() => changeStatus(s.id, "PENDING")} disabled={busy}>ทำเป็นรอชำระ</button>
-                    <button className="rounded-lg border px-3 py-1 hover:bg-slate-50" onClick={() => changeStatus(s.id, "CONFIRMED")} disabled={busy}>ทำเป็นยืนยันแล้ว</button>
-                    <button className="rounded-lg border px-3 py-1 hover:bg-red-50 text-red-600" onClick={() => changeStatus(s.id, "CANCELLED")} disabled={busy}>ยกเลิก</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-
-            {loading && Array.from({ length: 5 }).map((_, i) => (
-              <tr key={`skeleton-${i}`} className="border-t animate-pulse">
-                <td className="py-3 px-4"><div className="h-3 w-16 bg-slate-200 rounded" /></td>
-                <td className="py-3 px-4"><div className="h-3 w-28 bg-slate-200 rounded" /></td>
-                <td className="py-3 px-4"><div className="h-3 w-24 bg-slate-200 rounded" /></td>
-                <td className="py-3 px-4"><div className="h-3 w-20 bg-slate-200 rounded" /></td>
-                <td className="py-3 px-4"><div className="h-3 w-24 bg-slate-200 rounded" /></td>
-                <td className="py-3 px-4"><div className="h-5 w-16 bg-slate-200 rounded-full" /></td>
-                <td className="py-3 px-4"><div className="h-8 w-40 bg-slate-200 rounded-lg ml-auto" /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="flex items-center justify-center gap-2">
-        <PageBtn disabled={curPage <= 1} onClick={() => goto(curPage - 1)}>«</PageBtn>
-        {start > 1 && (<><PageBtn onClick={() => goto(1)}>1</PageBtn>{start > 2 && <span className="px-1 text-slate-400">…</span>}</>)}
-        {pages.map((p) => (<PageBtn key={p} active={p === curPage} onClick={() => goto(p)}>{p}</PageBtn>))}
-        {end < totalPages && (<>{end < totalPages - 1 && <span className="px-1 text-slate-400">…</span>}<PageBtn onClick={() => goto(totalPages)}>{totalPages}</PageBtn></>)}
-        <PageBtn disabled={curPage >= totalPages} onClick={() => goto(curPage + 1)}>»</PageBtn>
-      </div>
     </div>
-  );
-}
-
-export default function SalesPage() {
-  return (
-    <Suspense fallback={<div className="text-slate-400">กำลังโหลดรายการขาย…</div>}>
-      <SalesContent />
-    </Suspense>
   );
 }
