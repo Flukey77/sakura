@@ -15,7 +15,6 @@ function toDateThaiAware(x?: string): Date {
   if (!x) return new Date();
   const d = new Date(x);
   if (!isNaN(d.getTime())) return d;
-  // เผื่อรับมารูปแบบ dd/MM/yyyy (ไทย) แบบเร็ว ๆ
   const m = String(x).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
     let [, dd, mm, yyyy] = m;
@@ -73,20 +72,28 @@ async function generateDocNo(now: Date) {
   return buildDocNo(now, nextSeq);
 }
 
-/** หา/สร้างลูกค้าให้ปลอดภัยต่อ unique(phone/email) */
+/** หา/สร้างลูกค้าให้ปลอดภัยต่อ unique(phone/email) + เติม address ถ้ามี */
 async function findOrCreateCustomer(reqCust: any) {
   const name = (reqCust?.name ? String(reqCust.name) : "").trim();
-  const phone =
-    (reqCust?.phone ? String(reqCust.phone) : "").trim() || undefined;
-  const email =
-    (reqCust?.email ? String(reqCust.email) : "").trim() || undefined;
+  const phone = (reqCust?.phone ? String(reqCust.phone) : "").trim() || undefined;
+  const email = (reqCust?.email ? String(reqCust.email) : "").trim() || undefined;
+  const address =
+    (reqCust?.address ? String(reqCust.address) : "").trim() || undefined;
 
   // ถ้ามี id มาใช้เลย
   if (reqCust?.id) {
     const byId = await prisma.customer.findUnique({
       where: { id: String(reqCust.id) },
     });
-    if (byId) return { id: byId.id, name: byId.name };
+    if (byId) {
+      if (address && !byId.address) {
+        await prisma.customer.update({
+          where: { id: byId.id },
+          data: { address },
+        });
+      }
+      return { id: byId.id, name: byId.name };
+    }
   }
 
   // หาเดิมจาก phone/email/name
@@ -99,9 +106,17 @@ async function findOrCreateCustomer(reqCust: any) {
       ],
     },
   });
-  if (existed) return { id: existed.id, name: existed.name };
+  if (existed) {
+    if (address && !existed.address) {
+      await prisma.customer.update({
+        where: { id: existed.id },
+        data: { address },
+      });
+    }
+    return { id: existed.id, name: existed.name };
+  }
 
-  // ไม่มี -> สร้าง (กันชน P2002 แล้ว re-fetch)
+  // ไม่มี -> สร้าง
   if (!name && !phone && !email) return { id: null, name: null };
 
   try {
@@ -110,16 +125,15 @@ async function findOrCreateCustomer(reqCust: any) {
         name: name || phone || email || "CUSTOMER",
         phone,
         email,
+        address,
         tags: [],
       },
       select: { id: true, name: true },
     });
     return { id: created.id, name: created.name };
   } catch (e: any) {
-    if (
-      e instanceof Prisma.PrismaClientKnownRequestError &&
-      e.code === "P2002"
-    ) {
+    // กันเคส unique ซ้ำ (เช่น phone/email)
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       const again = await prisma.customer.findFirst({
         where: {
           OR: [
@@ -229,8 +243,8 @@ export async function POST(req: Request) {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const created = await prisma.$transaction(async (tx) => {
+          // ถ้ารอบแรกผู้ใช้ส่ง docNo มา ก็ลองใช้เลขนั้นก่อน
           if (!(attempt === 0 && wantDocNo)) {
-            // ออกเลขใหม่รอบนี้ (กรณีรอบก่อนชน หรือ UI ไม่ได้ส่งมา)
             finalDocNo = await generateDocNo(docDate);
           }
 
@@ -287,14 +301,15 @@ export async function POST(req: Request) {
           },
         });
       } catch (e: any) {
-        // docNo ซ้ำ -> ลองใหม่
-        if (
-          e instanceof Prisma.PrismaClientKnownRequestError &&
-          e.code === "P2002" &&
-          // @ts-ignore
-          (e.meta?.target as any)?.includes?.("docNo")
-        ) {
-          continue;
+        // กัน docNo ซ้ำ -> ลองใหม่
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+          const target = (e.meta?.target ?? []) as unknown as string[] | string;
+          const isDocNoConflict = Array.isArray(target)
+            ? target.includes("docNo")
+            : typeof target === "string"
+            ? target.includes("docNo")
+            : false;
+          if (isDocNoConflict) continue;
         }
         throw e;
       }
@@ -363,7 +378,7 @@ export async function GET(req: Request) {
         items: true,
         user: { select: { id: true, username: true, name: true } },
         customerRef: {
-          select: { id: true, name: true, phone: true, email: true },
+          select: { id: true, name: true, phone: true, email: true, address: true },
         },
       },
     });
