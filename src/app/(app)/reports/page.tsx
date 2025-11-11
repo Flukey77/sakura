@@ -1,5 +1,4 @@
-﻿// src/app/(app)/reports/page.tsx
-"use client";
+﻿"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -18,10 +17,12 @@ import {
   PiggyBank,
   PackageSearch,
   Facebook as FacebookIcon,
-  Clapperboard as TikTokIcon, // ใช้แทนไอคอน TikTok
+  Clapperboard as TikTokIcon,
+  Coins,
+  Calculator,
+  TrendingUp,
 } from "lucide-react";
 
-// กัน static export/ISR สำหรับเส้นทางนี้
 export const dynamic = "force-dynamic";
 
 type Period = "today" | "7d" | "month" | "year";
@@ -35,26 +36,31 @@ type Sale = {
   total: number;
 };
 
-type ApiRes = {
+type SalesRes = {
   ok: boolean;
   summary?: { total: number; gross: number; cogs: number };
   sales?: Sale[];
   message?: string;
 };
 
+type AdsSummaryRes = {
+  ok: boolean;
+  totalCost: number;
+  byChannel: Record<string, number>; // { FACEBOOK: number, TIKTOK: number }
+  message?: string;
+};
+
 const fetcher = (url: string) =>
   fetch(url, { cache: "no-store" }).then(async (r) => {
-    const j = (await r.json()) as ApiRes;
+    const j = await r.json();
     if (!r.ok) throw new Error(j?.message || "โหลดข้อมูลล้มเหลว");
-    return j;
+    return j as any;
   });
 
 const fmt = (n: number) =>
   (n || 0).toLocaleString("th-TH", { maximumFractionDigits: 2 });
 
-// ---------- แยกเป็น Inner + Suspense ครอบ ----------
 function ReportsInner() {
-  // sync กับ URL ?range=...
   const sp = useSearchParams();
   const router = useRouter();
   const urlPeriod = (sp.get("range") as Period) || "7d";
@@ -62,8 +68,7 @@ function ReportsInner() {
 
   useEffect(() => {
     if (period !== urlPeriod) setPeriod(urlPeriod);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlPeriod]);
+  }, [urlPeriod, period]);
 
   const changePeriod = (v: Period) => {
     setPeriod(v);
@@ -72,7 +77,7 @@ function ReportsInner() {
     router.replace(`/reports?${params.toString()}`, { scroll: false });
   };
 
-  // คำนวณช่วงวัน
+  // ช่วงวันที่
   const { from, to } = useMemo(() => {
     const now = new Date();
     const toStr = now.toISOString().slice(0, 10);
@@ -91,32 +96,73 @@ function ReportsInner() {
     return { from: d.toISOString().slice(0, 10), to: toStr };
   }, [period]);
 
-  // ดึงข้อมูล
-  const { data, error, isLoading, mutate } = useSWR<ApiRes>(
+  // ดึงยอดขาย
+  const {
+    data: salesData,
+    error: salesErr,
+    isLoading: salesLoading,
+    mutate: refSales,
+  } = useSWR<SalesRes>(
     `/api/sales?status=ALL&from=${from}&to=${to}`,
     fetcher,
     { revalidateOnFocus: false }
   );
 
-  const sales = data?.sales ?? [];
+  // ดึงค่าโฆษณา
+  const {
+    data: adsData,
+    error: adsErr,
+    isLoading: adsLoading,
+    mutate: refAds,
+  } = useSWR<AdsSummaryRes>(
+    `/api/ads/summary?from=${from}&to=${to}`,
+    fetcher,
+    { revalidateOnFocus: false }
+  );
 
-  // KPIs
-  const { total, gross, cogs, fbTotal, ttTotal } = useMemo(() => {
-    const t = Number(data?.summary?.total || 0);
-    const g = Number(data?.summary?.gross || 0);
-    const c = Number(data?.summary?.cogs || 0);
-    let fb = 0;
-    let tt = 0;
+  const sales = salesData?.sales ?? [];
+  const byChannel = adsData?.byChannel ?? {};
+
+  // KPIs รวม + แยกช่องทาง (ROAS = รายได้/ค่าโฆษณา)
+  const kpi = useMemo(() => {
+    const total = Number(salesData?.summary?.total || 0);
+    const gross = Number(salesData?.summary?.gross || 0);
+    const cogs = Number(salesData?.summary?.cogs || 0);
+
+    let fbRevenue = 0;
+    let ttRevenue = 0;
     for (const s of sales) {
       const ch = (s.channel || "").toLowerCase();
       const val = Number(s.total || 0);
-      if (ch.includes("facebook")) fb += val;
-      if (ch.includes("tiktok") || ch.includes("tik tok")) tt += val;
+      if (ch.includes("facebook")) fbRevenue += val;
+      if (ch.includes("tiktok") || ch.includes("tik tok")) ttRevenue += val;
     }
-    return { total: t, gross: g, cogs: c, fbTotal: fb, ttTotal: tt };
-  }, [data?.summary, sales]);
 
-  // Chart
+    const adTotal = Number(adsData?.totalCost || 0);
+    const fbAd = Number(byChannel.FACEBOOK || 0);
+    const ttAd = Number(byChannel.TIKTOK || 0);
+
+    const netProfit = gross - adTotal;
+
+    const fbROAS = fbAd > 0 ? fbRevenue / fbAd : 0;
+    const ttROAS = ttAd > 0 ? ttRevenue / ttAd : 0;
+
+    return {
+      total,
+      gross,
+      cogs,
+      adTotal,
+      netProfit,
+      fbRevenue,
+      ttRevenue,
+      fbAd,
+      ttAd,
+      fbROAS,
+      ttROAS,
+    };
+  }, [salesData?.summary, sales, adsData?.totalCost, byChannel]);
+
+  // ข้อมูลกราฟ
   const chartData = useMemo(() => {
     const bucket = new Map<string, number>();
     for (const s of sales) {
@@ -128,9 +174,12 @@ function ReportsInner() {
       .map((k) => ({ label: k, total: bucket.get(k) ?? 0 }));
   }, [sales]);
 
+  const loading = salesLoading || adsLoading;
+  const error = salesErr || adsErr;
+
   return (
     <div className="space-y-6">
-      {/* ตัวกรองช่วงเวลา + ปุ่มรีเฟรช */}
+      {/* ตัวกรอง + รีเฟรช */}
       <div className="flex items-center gap-3 justify-end">
         <select
           className="rounded-xl border px-3 py-2 bg-white w-[180px]"
@@ -144,46 +193,34 @@ function ReportsInner() {
           <option value="year">ปีนี้</option>
         </select>
         <button
-          onClick={() => mutate()}
+          onClick={() => {
+            refSales();
+            refAds();
+          }}
           className="rounded-xl border px-4 py-2 bg-white hover:bg-slate-50 disabled:opacity-60"
-          disabled={isLoading}
+          disabled={loading}
         >
-          {isLoading ? "กำลังโหลด…" : "รีเฟรชข้อมูล"}
+          {loading ? "กำลังโหลด…" : "รีเฟรชข้อมูล"}
         </button>
       </div>
 
-      {/* KPI row – ไอคอน/สไตล์ใหม่ */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <KpiCard
-          title="ยอดขายรวม"
-          value={`${fmt(total)} ฿`}
-          icon={<BarChart2 className="h-5 w-5" />}
-          accent="blue"
-        />
-        <KpiCard
-          title="กำไรขั้นต้น"
-          value={`${fmt(gross)} ฿`}
-          icon={<PiggyBank className="h-5 w-5" />}
-          accent="emerald"
-        />
-        <KpiCard
-          title="ต้นทุนขาย (COGS)"
-          value={`${fmt(cogs)} ฿`}
-          icon={<PackageSearch className="h-5 w-5" />}
-          accent="slate"
-        />
-        <KpiCard
-          title="ยอดขาย Facebook"
-          value={`${fmt(fbTotal)} ฿`}
-          icon={<FacebookIcon className="h-5 w-5" />}
-          accent="indigo"
-        />
-        <KpiCard
-          title="ยอดขาย TikTok"
-          value={`${fmt(ttTotal)} ฿`}
-          icon={<TikTokIcon className="h-5 w-5" />}
-          accent="pink"
-        />
+      {/* แถว KPI หลัก */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
+        <KpiCard title="ยอดขายรวม" value={`${fmt(kpi.total)} ฿`} icon={<BarChart2 className="h-5 w-5" />} accent="blue" />
+        <KpiCard title="กำไรขั้นต้น" value={`${fmt(kpi.gross)} ฿`} icon={<PiggyBank className="h-5 w-5" />} accent="emerald" />
+        <KpiCard title="ต้นทุนขาย (COGS)" value={`${fmt(kpi.cogs)} ฿`} icon={<PackageSearch className="h-5 w-5" />} accent="slate" />
+        <KpiCard title="ยอดขาย Facebook" value={`${fmt(kpi.fbRevenue)} ฿`} icon={<FacebookIcon className="h-5 w-5" />} accent="indigo" />
+        <KpiCard title="ยอดขาย TikTok" value={`${fmt(kpi.ttRevenue)} ฿`} icon={<TikTokIcon className="h-5 w-5" />} accent="pink" />
+        <KpiCard title="ค่าโฆษณารวม" value={`${fmt(kpi.adTotal)} ฿`} icon={<Coins className="h-5 w-5" />} accent="slate" />
+        <KpiCard title="กำไรสุทธิ" value={`${fmt(kpi.netProfit)} ฿`} icon={<Calculator className="h-5 w-5" />} accent="emerald" />
+      </section>
+
+      {/* แถว KPI ต่อช่องทาง: Ad Cost + ROAS */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard title="ค่าโฆษณา Facebook" value={`${fmt(kpi.fbAd)} ฿`} icon={<FacebookIcon className="h-5 w-5" />} accent="indigo" />
+        <KpiCard title="ROAS Facebook" value={`${kpi.fbROAS.toFixed(2)}x`} icon={<TrendingUp className="h-5 w-5" />} accent="indigo" />
+        <KpiCard title="ค่าโฆษณา TikTok" value={`${fmt(kpi.ttAd)} ฿`} icon={<TikTokIcon className="h-5 w-5" />} accent="pink" />
+        <KpiCard title="ROAS TikTok" value={`${kpi.ttROAS.toFixed(2)}x`} icon={<TrendingUp className="h-5 w-5" />} accent="pink" />
       </section>
 
       {/* ตาราง + กราฟ */}
@@ -192,26 +229,44 @@ function ReportsInner() {
           <div className="card-body">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold mb-3">รายการล่าสุด</h3>
-              <button onClick={() => mutate()} className="btn btn-light btn-sm">
+              <button
+                onClick={() => {
+                  refSales();
+                  refAds();
+                }}
+                className="btn btn-light btn-sm"
+              >
                 โหลดซ้ำ
               </button>
             </div>
 
             {error && (
               <div className="text-red-600">
-                {error.message || "โหลดข้อมูลล้มเหลว"}
-                <button onClick={() => mutate()} className="btn btn-secondary ml-3">
+                {(error as any).message || "โหลดข้อมูลล้มเหลว"}
+                <button
+                  onClick={() => {
+                    refSales();
+                    refAds();
+                  }}
+                  className="btn btn-secondary ml-3"
+                >
                   ลองอีกครั้ง
                 </button>
               </div>
             )}
 
-            {isLoading && <div className="text-slate-400">กำลังโหลด…</div>}
+            {loading && <div className="text-slate-400">กำลังโหลด…</div>}
 
-            {!isLoading && !error && sales.length === 0 ? (
+            {!loading && !error && sales.length === 0 ? (
               <div className="py-8 text-slate-500">
                 ไม่มีข้อมูลในช่วงเวลานี้
-                <button onClick={() => mutate()} className="btn btn-secondary ml-3">
+                <button
+                  onClick={() => {
+                    refSales();
+                    refAds();
+                  }}
+                  className="btn btn-secondary ml-3"
+                >
                   รีเฟรช
                 </button>
               </div>
@@ -236,9 +291,7 @@ function ReportsInner() {
                         <td className="py-2 pr-4 text-blue-600">{r.docNo}</td>
                         <td className="py-2 pr-4">{r.customer ?? "-"}</td>
                         <td className="py-2 pr-4">{r.channel ?? "-"}</td>
-                        <td className="py-2 pr-0 text-right">
-                          {fmt(Number(r.total || 0))}
-                        </td>
+                        <td className="py-2 pr-0 text-right">{fmt(Number(r.total || 0))}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -254,7 +307,13 @@ function ReportsInner() {
             {!chartData.length ? (
               <div className="py-8 text-slate-500">
                 ไม่มีข้อมูลกราฟ
-                <button onClick={() => mutate()} className="btn btn-secondary ml-3">
+                <button
+                  onClick={() => {
+                    refSales();
+                    refAds();
+                  }}
+                  className="btn btn-secondary ml-3"
+                >
                   รีเฟรช
                 </button>
               </div>
@@ -285,7 +344,6 @@ function ReportsInner() {
 }
 
 export default function ReportsPage() {
-  // ห่อ Suspense เพื่อให้ useSearchParams ใช้งานได้ตอน build
   return (
     <Suspense fallback={<div className="text-slate-400">กำลังโหลดรายงาน…</div>}>
       <ReportsInner />
