@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Line = {
@@ -9,118 +9,148 @@ type Line = {
   qty: number;
   price: number;
   discount: number;
-  // สำหรับ safety hint
+  // availability
   stock?: number;
   safetyStock?: number;
-  checking?: boolean;
+  loading?: boolean;
 };
 
-const baht = (n: number) => (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+type Availability = { code: string; name: string | null; stock: number; safetyStock: number };
 
-// ----- helper แปลงวันที่ -----
-const toDateFromThai = (s: string) => {
-  // คาดรูปแบบ dd/MM/yyyy (ทั้ง ค.ศ./พ.ศ.)
-  const m = s.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!m) return new Date(); // fallback วันนี้
-  const dd = +m[1], mm = +m[2] - 1; let yyyy = +m[3];
-  if (yyyy > 2500) yyyy -= 543; // พ.ศ. -> ค.ศ.
-  return new Date(yyyy, mm, dd);
-};
-const fmtThaiDDMMYYYY = (d: Date) => {
+const CHANNELS = ["TikTok", "Facebook", "Shopee", "Lazada", "หน้าร้าน"] as const;
+const TAX_MODES = [
+  { value: "INCLUSIVE", label: "รวมภาษี" },
+  { value: "EXCLUSIVE", label: "แยกภาษี" },
+] as const;
+
+const fmtBaht = (n: number) =>
+  (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function toIsoFromThai(ddmmyyyy: string): string {
+  // รับ dd/MM/yyyy (พ.ศ.ก็ได้) -> yyyy-MM-dd (ค.ศ.)
+  const m = ddmmyyyy.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return new Date().toISOString().slice(0, 10);
+  const dd = +m[1], mm = +m[2] - 1; let yy = +m[3];
+  if (yy > 2500) yy -= 543;
+  const d = new Date(yy, mm, dd);
+  const y = d.getFullYear(), mon = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mon}-${day}`;
+}
+
+function fromDateToThai(d: Date): string {
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear(); // ใช้ ค.ศ.
-  return `${dd}/${mm}/${yyyy}`;
-};
+  const yy = d.getFullYear() + 543;
+  return `${dd}/${mm}/${yy}`;
+}
 
-export default function SalesNewPage() {
+export default function NewSalePage() {
   const router = useRouter();
 
-  // ฟอร์มส่วนหัว
-  const [docDateText, setDocDateText] = useState(fmtThaiDDMMYYYY(new Date()));
-  const [refNote, setRefNote] = useState("");
-  const [channel, setChannel] = useState("TikTok");
-  const [vatMode, setVatMode] = useState<"INC">("INC");
+  // header
+  const [docDate, setDocDate] = useState<string>(fromDateToThai(new Date()));
+  const [channel, setChannel] = useState<string>(CHANNELS[0]);
+  const [taxMode, setTaxMode] = useState<"INCLUSIVE" | "EXCLUSIVE">("INCLUSIVE");
+  const [docNoPreview, setDocNoPreview] = useState<string>("กำลังออกเลข…");
 
-  // ลูกค้า
+  // customer
   const [custName, setCustName] = useState("");
   const [custPhone, setCustPhone] = useState("");
   const [custEmail, setCustEmail] = useState("");
   const [custAddress, setCustAddress] = useState("");
 
-  // รายการ
+  // lines
   const [lines, setLines] = useState<Line[]>([{ code: "", name: "", qty: 1, price: 0, discount: 0 }]);
 
-  // สถานะบันทึก
+  // save
   const [saving, setSaving] = useState(false);
-  // เก็บ docNo ที่ได้ตอนบันทึก (เอาไว้โชว์ read-only)
-  const [docNo, setDocNo] = useState<string>("");
 
-  const addRow = () => setLines((xs) => [...xs, { code: "", name: "", qty: 1, price: 0, discount: 0 }]);
-  const delRow = (idx: number) => setLines((xs) => xs.filter((_, i) => i !== idx));
-
-  const update = (idx: number, key: keyof Line, val: any) => {
-    setLines((xs) => xs.map((r, i) => (i === idx ? { ...r, [key]: val } : r)));
-  };
-
-  // เมื่อพิมพ์รหัสสินค้า → เรียก API availability แล้วติดป้าย stock/safety
-  const checkAvailability = async (idx: number, code: string) => {
-    update(idx, "checking", true);
+  // load docNo preview (เปลี่ยนตามวันที่)
+  async function refreshDocNoPreview(dateStr: string) {
     try {
-      if (!code) {
-        update(idx, "stock", undefined);
-        update(idx, "safetyStock", undefined);
-        return;
-      }
-      const res = await fetch(`/api/products/availability?codes=${encodeURIComponent(code)}`, { cache: "no-store" });
-      const arr = (await res.json()) as Array<{ code: string; name: string | null; stock: number; safetyStock: number }>;
-      const row = arr?.[0];
-      update(idx, "stock", row?.stock ?? 0);
-      update(idx, "safetyStock", row?.safetyStock ?? 0);
-      if (!lines[idx]?.name && row?.name) update(idx, "name", row.name);
-      if (!lines[idx]?.price && row) update(idx, "price", Number(row?.stock >= 0 ? lines[idx].price : 0)); // ไม่บังคับราคา
+      const iso = toIsoFromThai(dateStr);
+      const r = await fetch(`/api/sales/preview-docno?date=${iso}`, { cache: "no-store" });
+      const j = await r.json();
+      setDocNoPreview(j?.preview || "-");
     } catch {
-      update(idx, "stock", undefined);
-      update(idx, "safetyStock", undefined);
-    } finally {
-      update(idx, "checking", false);
+      setDocNoPreview("-");
     }
-  };
+  }
+  useEffect(() => { refreshDocNoPreview(docDate); }, [docDate]);
 
-  // คำนวนยอด
+  // ดึง availability ของรหัสเดียว
+  async function fetchAvailability(code: string): Promise<Availability | null> {
+    if (!code.trim()) return null;
+    const r = await fetch(`/api/products/availability?codes=${encodeURIComponent(code.trim())}`, { cache: "no-store" });
+    const j = await r.json().catch(() => []);
+    const row = Array.isArray(j) ? j.find((x: any) => x.code === code.trim()) : null;
+    if (!row) return null;
+    return { code: row.code, name: row.name, stock: Number(row.stock || 0), safetyStock: Number(row.safetyStock || 0) };
+  }
+
+  // เปลี่ยนค่าในบรรทัด
+  function updateLine(i: number, patch: Partial<Line>) {
+    setLines(prev => prev.map((ln, idx) => (idx === i ? { ...ln, ...patch } : ln)));
+  }
+
+  async function onCodeChange(i: number, value: string) {
+    updateLine(i, { code: value, loading: true });
+    const info = await fetchAvailability(value).catch(() => null);
+    if (info) {
+      updateLine(i, {
+        loading: false,
+        name: info.name || value,
+        stock: info.stock,
+        safetyStock: info.safetyStock,
+      });
+    } else {
+      updateLine(i, { loading: false, name: value, stock: undefined, safetyStock: undefined });
+    }
+  }
+
+  function addRow() {
+    setLines(prev => [...prev, { code: "", name: "", qty: 1, price: 0, discount: 0 }]);
+  }
+  function removeRow(i: number) {
+    setLines(prev => prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i));
+  }
+
+  // คำนวณยอด (รวม/แยกภาษี)
   const totals = useMemo(() => {
-    const sub = lines.reduce((a, x) => a + (x.qty * x.price - (x.discount || 0)), 0);
-    const vat = sub * 0.07;
-    const grand = sub + vat;
-    return { sub, vat, grand };
-  }, [lines]);
+    const subtotal = lines.reduce((a, x) => a + (x.qty * x.price - x.discount), 0);
+    if (taxMode === "EXCLUSIVE") {
+      const vat = subtotal * 0.07;
+      return { subtotal, vat, grand: subtotal + vat };
+    } else {
+      const vat = subtotal * 7 / 107;
+      return { subtotal, vat, grand: subtotal };
+    }
+  }, [lines, taxMode]);
 
   async function save() {
+    if (saving) return;
     setSaving(true);
     try {
       const body = {
-        docDate: fmtThaiDDMMYYYY(toDateFromThai(docDateText)), // ส่ง dd/MM/yyyy แต่ฝั่ง API รองรับ
+        docDate: toIsoFromThai(docDate),
         channel,
-        docNo: "", // ให้ระบบออกเลขเอง
-        customer: { name: custName, phone: custPhone, email: custEmail, address: custAddress },
+        taxMode, // ส่งให้ API คำนวณตามโหมดภาษี
+        customer: {
+          name: custName, phone: custPhone, email: custEmail, address: custAddress,
+        },
         items: lines
-          .filter((x) => (x.code || x.name) && Number(x.qty) > 0)
-          .map((x) => ({ code: x.code.trim(), name: x.name.trim(), qty: Number(x.qty||0), price: Number(x.price||0), discount: Number(x.discount||0) })),
+          .filter(l => (l.code || l.name) && l.qty > 0)
+          .map(l => ({ code: l.code.trim(), name: l.name.trim(), qty: l.qty, price: l.price, discount: l.discount })),
       };
 
-      const res = await fetch("/api/sales", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const j = await res.json();
-      if (!res.ok || j?.ok === false) throw new Error(j?.message || "บันทึกไม่สำเร็จ");
+      const r = await fetch("/api/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok || j?.ok === false) throw new Error(j?.message || "บันทึกไม่สำเร็จ");
 
-      setDocNo(j.docNo || "");
-      alert(`บันทึกเสร็จแล้ว\nเลขเอกสาร: ${j.docNo}`);
+      alert("บันทึกเสร็จแล้ว");
       router.push("/sales");
     } catch (e: any) {
-      alert(e?.message ?? "บันทึกไม่สำเร็จ");
+      alert(e?.message || "บันทึกไม่สำเร็จ");
     } finally {
       setSaving(false);
     }
@@ -130,75 +160,52 @@ export default function SalesNewPage() {
     <div className="space-y-6">
       <h1 className="text-xl font-semibold">สร้างออเดอร์</h1>
 
-      {/* ส่วนหัวซ้าย-ขวา */}
-      <div className="grid md:grid-cols-2 gap-4">
+      {/* ส่วนหัว */}
+      <div className="grid lg:grid-cols-2 gap-4">
+        {/* ซ้าย: ข้อมูลเอกสาร */}
         <div className="card">
           <div className="card-body space-y-3">
-            <div className="text-slate-500">ข้อมูล</div>
+            <div className="text-slate-600">เลขเอกสาร</div>
+            <input className="input bg-slate-50" value={docNoPreview} readOnly />
 
-            {/* เลขเอกสาร (ออกตอนบันทึก) */}
-            <div>
-              <label className="text-sm text-slate-500">เลขเอกสาร</label>
-              <input className="input w-full bg-slate-50" value={docNo || "ออกเลขเอกสารเมื่อบันทึก"} readOnly />
-            </div>
+            <div className="text-slate-600">วันที่</div>
+            <input
+              className="input"
+              placeholder="dd/MM/yyyy"
+              value={docDate}
+              onChange={(e) => setDocDate(e.target.value)}
+            />
 
-            <div>
-              <label className="text-sm text-slate-500">วันที่ (วัน/เดือน/ปี)</label>
-              <div className="relative">
-                <input
-                  className="input w-full"
-                  placeholder="dd/MM/yyyy"
-                  value={docDateText}
-                  onChange={(e) => setDocDateText(e.target.value)}
-                />
-              </div>
-            </div>
+            <div className="text-slate-600">อ้างอิง</div>
+            <input className="input" placeholder="PO, ใบจอง ฯลฯ" />
 
-            <div>
-              <label className="text-sm text-slate-500">อ้างอิง</label>
-              <input className="input w-full" placeholder="PO, ใบจอง ฯลฯ" value={refNote} onChange={(e) => setRefNote(e.target.value)} />
-            </div>
+            <div className="text-slate-600">ช่องทางการขาย</div>
+            <select className="input" value={channel} onChange={(e) => setChannel(e.target.value)}>
+              {CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
 
-            <div>
-              <label className="text-sm text-slate-500">ช่องทางการขาย</label>
-              <select className="input w-full" value={channel} onChange={(e) => setChannel(e.target.value)}>
-                <option>TikTok</option>
-                <option>Facebook</option>
-                <option>LINE</option>
-                <option>Shopee</option>
-                <option>Lazada</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm text-slate-500">ประเภทภาษี (เฉพาะแสดงผล)</label>
-              <select className="input w-full" value={vatMode} onChange={(e) => setVatMode(e.target.value as any)}>
-                <option value="INC">รวมภาษี</option>
-              </select>
-            </div>
+            <div className="text-slate-600">ประเภทภาษี</div>
+            <select
+              className="input"
+              value={taxMode}
+              onChange={(e) => setTaxMode(e.target.value as "INCLUSIVE" | "EXCLUSIVE")}
+            >
+              {TAX_MODES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
           </div>
         </div>
 
-        {/* ลูกค้า */}
+        {/* ขวา: ลูกค้า */}
         <div className="card">
-          <div className="card-body space-y-3">
-            <div className="text-slate-500">ลูกค้า</div>
-            <div>
-              <label className="text-sm text-slate-500">ชื่อลูกค้า</label>
-              <input className="input w-full" placeholder="พิมพ์ชื่อลูกค้า" value={custName} onChange={(e) => setCustName(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm text-slate-500">เบอร์โทรศัพท์ลูกค้า</label>
-              <input className="input w-full" placeholder="เช่น 0950000000" value={custPhone} onChange={(e) => setCustPhone(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm text-slate-500">อีเมลลูกค้า</label>
-              <input className="input w-full" placeholder="someone@email.com" value={custEmail} onChange={(e) => setCustEmail(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm text-slate-500">ที่อยู่ลูกค้า</label>
-              <textarea className="input w-full min-h-[96px]" placeholder="ที่อยู่สำหรับจัดส่ง/ออกเอกสาร" value={custAddress} onChange={(e) => setCustAddress(e.target.value)} />
-            </div>
+          <div className="card-body grid gap-3">
+            <div className="text-slate-600">ชื่อลูกค้า</div>
+            <input className="input" placeholder="พิมพ์ชื่อลูกค้า" value={custName} onChange={(e) => setCustName(e.target.value)} />
+            <div className="text-slate-600">เบอร์โทรศัพท์ลูกค้า</div>
+            <input className="input" placeholder="เช่น 0950000000" value={custPhone} onChange={(e) => setCustPhone(e.target.value)} />
+            <div className="text-slate-600">อีเมลลูกค้า</div>
+            <input className="input" placeholder="someone@email.com" value={custEmail} onChange={(e) => setCustEmail(e.target.value)} />
+            <div className="text-slate-600">ที่อยู่ลูกค้า</div>
+            <textarea className="input" rows={3} placeholder="ที่อยู่ออกเอกสาร/จัดส่ง" value={custAddress} onChange={(e) => setCustAddress(e.target.value)} />
           </div>
         </div>
       </div>
@@ -207,62 +214,63 @@ export default function SalesNewPage() {
       <div className="card">
         <div className="card-body">
           <div className="flex items-center justify-between mb-3">
-            <div className="text-slate-600">รายการสินค้า</div>
+            <div className="text-slate-700 font-medium">รายการสินค้า</div>
             <button className="btn" onClick={addRow}>+ เพิ่มแถว</button>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-sm">
+            <table className="w-full min-w-[960px] text-sm">
               <thead>
-                <tr className="text-left text-slate-500">
-                  <th className="py-2 pr-3 w-[140px]">รหัส</th>
+                <tr className="text-left text-slate-500 border-b">
+                  <th className="py-2 pr-3 w-40">รหัส</th>
                   <th className="py-2 pr-3">ชื่อสินค้า</th>
-                  <th className="py-2 pr-3 w-[120px]">จำนวน</th>
-                  <th className="py-2 pr-3 w-[140px]">ราคา/หน่วย</th>
-                  <th className="py-2 pr-3 w-[140px]">ส่วนลด</th>
-                  <th className="py-2 pr-3 w-[140px] text-right">จำนวนเงิน</th>
-                  <th className="py-2 w-[80px] text-right">จัดการ</th>
+                  <th className="py-2 pr-3 w-24">จำนวน</th>
+                  <th className="py-2 pr-3 w-28">ราคา/หน่วย</th>
+                  <th className="py-2 pr-3 w-28">ส่วนลด</th>
+                  <th className="py-2 pr-3 w-28">จำนวนเงิน</th>
+                  <th className="py-2 pr-0 w-24 text-right">จัดการ</th>
                 </tr>
               </thead>
               <tbody>
                 {lines.map((ln, i) => {
-                  const amount = ln.qty * ln.price - (ln.discount || 0);
+                  const amount = ln.qty * ln.price - ln.discount;
                   const low = typeof ln.stock === "number" && typeof ln.safetyStock === "number" && ln.stock < ln.safetyStock;
                   return (
                     <tr key={i} className="border-t align-top">
                       <td className="py-2 pr-3">
                         <input
-                          className="input w-[120px]"
+                          className="input"
                           value={ln.code}
-                          onChange={(e) => {
-                            const v = e.target.value.toUpperCase();
-                            update(i, "code", v);
-                            if (v.length >= 1) checkAvailability(i, v);
-                          }}
-                          placeholder=""
+                          onChange={(e) => onCodeChange(i, e.target.value)}
+                          placeholder="รหัส"
                         />
-                        {/* hint safety */}
-                        {(typeof ln.stock === "number" && typeof ln.safetyStock === "number") && (
-                          <div className={`mt-1 text-xs px-2 py-1 rounded ${low ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-                            สต๊อก: {ln.stock} | Safety: {ln.safetyStock} {low ? "— เหลือน้อย!" : ""}
+                        {/* availability */}
+                        {ln.loading ? (
+                          <div className="mt-1 text-[12px] text-slate-400">กำลังเช็คสต๊อก…</div>
+                        ) : typeof ln.stock === "number" ? (
+                          <div className={`mt-1 text-[12px] px-2 py-0.5 rounded ${low ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
+                            สต๊อก {ln.stock.toLocaleString("th-TH")} | Safety {ln.safetyStock?.toLocaleString("th-TH")}
+                            {low && <b className="ml-1">สต๊อกใกล้หมด</b>}
                           </div>
-                        )}
+                        ) : null}
                       </td>
                       <td className="py-2 pr-3">
-                        <input className="input w-full" value={ln.name} onChange={(e) => update(i, "name", e.target.value)} />
+                        <input className="input" value={ln.name} onChange={(e) => updateLine(i, { name: e.target.value })} placeholder="ชื่อสินค้า" />
                       </td>
                       <td className="py-2 pr-3">
-                        <input className="input w-[110px]" type="number" value={ln.qty} onChange={(e) => update(i, "qty", Number(e.target.value))} />
+                        <input className="input" type="number" value={ln.qty} onChange={(e) => updateLine(i, { qty: Number(e.target.value) })} />
                       </td>
                       <td className="py-2 pr-3">
-                        <input className="input w-[130px]" type="number" value={ln.price} onChange={(e) => update(i, "price", Number(e.target.value))} />
+                        <input className="input" type="number" value={ln.price} onChange={(e) => updateLine(i, { price: Number(e.target.value) })} />
                       </td>
                       <td className="py-2 pr-3">
-                        <input className="input w-[130px]" type="number" value={ln.discount} onChange={(e) => update(i, "discount", Number(e.target.value))} />
+                        <input className="input" type="number" value={ln.discount} onChange={(e) => updateLine(i, { discount: Number(e.target.value) })} />
                       </td>
-                      <td className="py-2 pr-3 text-right align-middle">฿{baht(amount)}</td>
-                      <td className="py-2 text-right">
-                        <button className="btn border-red-200 text-red-600 hover:bg-red-50" onClick={() => delRow(i)}>ลบ</button>
+                      <td className="py-2 pr-3 align-middle">฿{fmtBaht(amount)}</td>
+                      <td className="py-2 pr-0">
+                        <div className="flex justify-end">
+                          <button className="btn border-red-200 text-red-600 hover:bg-red-50" onClick={() => removeRow(i)}>ลบ</button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -271,24 +279,24 @@ export default function SalesNewPage() {
             </table>
 
             {/* สรุปยอด */}
-            <div className="mt-6 ml-auto w-full max-w-[420px] space-y-2">
+            <div className="mt-6 grid gap-2 w-full max-w-sm ml-auto">
               <div className="flex justify-between text-slate-600">
-                <div>รวมก่อนภาษี</div>
-                <div>฿{baht(totals.sub)}</div>
+                <div>{taxMode === "EXCLUSIVE" ? "รวมก่อนภาษี" : "มูลค่ารวม (รวมภาษี)"}</div>
+                <div>฿{fmtBaht(totals.subtotal)}</div>
               </div>
               <div className="flex justify-between text-slate-600">
                 <div>ภาษีมูลค่าเพิ่ม (7%)</div>
-                <div>฿{baht(totals.vat)}</div>
+                <div>฿{fmtBaht(totals.vat)}</div>
               </div>
-              <div className="flex justify-between px-4 py-3 rounded-xl bg-slate-100 font-semibold text-lg">
+              <div className="flex justify-between items-center rounded-xl bg-slate-100 px-4 py-3 font-semibold">
                 <div>รวมสุทธิ</div>
-                <div>฿{baht(totals.grand)}</div>
+                <div>฿{fmtBaht(totals.grand)}</div>
               </div>
             </div>
           </div>
 
-          {/* ปุ่ม */}
-          <div className="mt-6 flex gap-2 justify-end">
+          {/* ปุ่มบันทึก */}
+          <div className="card-footer flex justify-end gap-2">
             <button className="btn" onClick={() => router.push("/sales")}>ยกเลิก</button>
             <button className="btn btn-primary" onClick={save} disabled={saving}>
               {saving ? "กำลังบันทึก…" : "บันทึก"}

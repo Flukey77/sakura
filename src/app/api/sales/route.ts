@@ -206,7 +206,12 @@ export async function POST(req: Request) {
       }
     }
 
-    // คำนวณยอด
+    // === คำนวณยอด: รองรับ taxMode ===
+    const taxMode: "INCLUSIVE" | "EXCLUSIVE" =
+      (typeof body.taxMode === "string" && body.taxMode.toUpperCase() === "EXCLUSIVE")
+        ? "EXCLUSIVE"
+        : "INCLUSIVE";
+
     let subtotal = new D(0);
     const linePayload = items.map((it) => {
       const p = pmap.get(it.code)!;
@@ -226,8 +231,19 @@ export async function POST(req: Request) {
       };
     });
 
-    const vat = subtotal.mul(0.07);
-    const grand = subtotal.plus(vat);
+    let vat: Prisma.Decimal;
+    let grand: Prisma.Decimal;
+
+    if (taxMode === "EXCLUSIVE") {
+      // ราคาที่ป้อน "ยังไม่รวมภาษี"
+      vat = subtotal.mul(0.07);
+      grand = subtotal.plus(vat);
+    } else {
+      // ราคาที่ป้อน "รวมภาษีแล้ว"
+      vat = subtotal.mul(7).div(107);
+      grand = subtotal;
+    }
+
     const totalCogs = linePayload.reduce((a, x) => a.plus(x.cogs), new D(0));
     const gross = grand.minus(totalCogs);
 
