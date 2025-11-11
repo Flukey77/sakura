@@ -1,5 +1,8 @@
 // prisma/schema.prisma
-generator client { provider = "prisma-client-js" }
+
+generator client {
+  provider = "prisma-client-js"
+}
 
 datasource db {
   provider  = "postgresql"
@@ -8,9 +11,23 @@ datasource db {
 }
 
 // ---------- ENUMS ----------
-enum Role { ADMIN EMPLOYEE }
-enum PaymentStatus { PENDING PARTIAL PAID REFUNDED CANCELED }
-enum AdChannel { Facebook TikTok }
+enum Role {
+  ADMIN
+  EMPLOYEE
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  REFUNDED
+  CANCELED
+}
+
+enum AdChannel {
+  FACEBOOK
+  TIKTOK
+}
 
 // ---------- MODELS ----------
 model User {
@@ -30,7 +47,7 @@ model Customer {
   name      String
   phone     String?   @unique
   email     String?   @unique
-  address   String?   // << address
+  address   String?
   tags      String[]
   note      String?
   createdAt DateTime  @default(now())
@@ -46,9 +63,11 @@ model Product {
   cost         Decimal  @default(0) @db.Decimal(18, 2)
   price        Decimal  @default(0) @db.Decimal(18, 2)
   stock        Int      @default(0)
+  /// ค่าขั้นต่ำของสต็อกที่ต้องการ ถ้าต่ำกว่านี้ให้เตือน
   safetyStock  Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
   items        SaleItem[]
 
   @@index([name])
@@ -61,6 +80,7 @@ model Sale {
   docDate       DateTime
   date          DateTime       @default(now())
 
+  // เก็บค่าเดิมเป็นสตริงเพื่อรองรับข้อมูลเก่า
   customer      String?
   channel       String?
 
@@ -72,6 +92,7 @@ model Sale {
   createdBy     String
   user          User           @relation(fields: [createdBy], references: [id])
 
+  // ความสัมพันธ์กับลูกค้า (อาจว่างสำหรับเรคอร์ดเก่า)
   customerId    String?
   customerRef   Customer?      @relation(fields: [customerId], references: [id])
 
