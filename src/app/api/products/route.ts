@@ -1,26 +1,27 @@
-﻿import { NextResponse } from "next/server";
+﻿// src/app/api/products/route.ts
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
-/**
- * GET /api/products?q=&page=&pageSize=
- * - ค้นหาด้วย code/name
- * - แบ่งหน้า
- */
+/** GET /api/products?q=&page=&pageSize=  (มีค้นหา + แบ่งหน้า) */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
+
   const q = (searchParams.get("q") || "").trim();
   const page = Math.max(1, Number(searchParams.get("page") || 1));
   const pageSizeRaw = Number(searchParams.get("pageSize") || 20);
   const pageSize = Math.min(Math.max(5, pageSizeRaw), 100); // 5–100
 
-  const where = q
-    ? {
-        OR: [
-          { code: { contains: q, mode: "insensitive" } },
-          { name: { contains: q, mode: "insensitive" } },
-        ],
-      }
-    : undefined;
+  let where: Prisma.ProductWhereInput | undefined;
+  if (q) {
+    const mode = Prisma.QueryMode.insensitive;
+    where = {
+      OR: [
+        { code: { contains: q, mode } },
+        { name: { contains: q, mode } },
+      ],
+    };
+  }
 
   const total = await prisma.product.count({ where });
   const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -42,13 +43,17 @@ export async function GET(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, items, page, pageSize, total, pages });
+  return NextResponse.json({
+    ok: true,
+    items,
+    page,
+    pageSize,
+    total,
+    pages,
+  });
 }
 
-/**
- * POST /api/products
- * body: { code, name, cost, price, stock? }
- */
+/** POST /api/products  สร้างสินค้าแบบง่าย */
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
@@ -56,12 +61,12 @@ export async function POST(req: Request) {
       name: string;
       cost: number | string;
       price: number | string;
-      stock?: number | string;
+      stock?: number;
     };
 
-    if (!body.code?.trim() || !body.name?.trim()) {
+    if (!body.code || !body.name) {
       return NextResponse.json(
-        { ok: false, message: "code/name required" },
+        { message: "code/name required" },
         { status: 400 }
       );
     }
@@ -86,10 +91,10 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json({ ok: true, item: product }, { status: 201 });
+    return NextResponse.json(product, { status: 201 });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, message: e?.message ?? "error" },
+      { message: e?.message ?? "error" },
       { status: 500 }
     );
   }
