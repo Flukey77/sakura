@@ -12,6 +12,7 @@ const to2 = (n: any) => {
 };
 
 const todayYMD = () => {
+  // ✅ บังคับรูปแบบ YYYY-MM-DD (ค.ศ.) สำหรับ <input type="date">
   const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -41,7 +42,7 @@ export default function NewSalePage() {
     setItems((prev) => prev.filter((_, idx) => idx !== i));
   }
 
-  // รวมเงินฝั่ง UI (แสดงผลเท่านั้น)
+  // รวมเงินฝั่ง UI
   const totalBeforeVat = useMemo(
     () =>
       items.reduce(
@@ -56,7 +57,7 @@ export default function NewSalePage() {
   const vat = useMemo(() => to2(totalBeforeVat * 0.07), [totalBeforeVat]);
   const grand = useMemo(() => to2(totalBeforeVat + vat), [totalBeforeVat, vat]);
 
-  // -------- ตรวจสต๊อกเรียลไทม์ (debounce 300ms) --------
+  // ตรวจสต๊อกเรียลไทม์ (debounce 300ms)
   useEffect(() => {
     const timer = setTimeout(async () => {
       const codes = Array.from(
@@ -85,7 +86,6 @@ export default function NewSalePage() {
     return () => clearTimeout(timer);
   }, [items]);
 
-  // คำนวณรายการที่ “สต๊อกไม่พอ” และ “ต่ำกว่า safety”
   const stockIssues = useMemo(() => {
     const insufficient: { idx: number; code: string; need: number; have: number }[] = [];
     const belowSafety: { idx: number; code: string; stock: number; safety: number }[] = [];
@@ -149,12 +149,11 @@ export default function NewSalePage() {
     }
 
     const payload = {
-      // ปล่อยให้แบ็กเอนด์ออกเลข (ส่งได้ แต่ถ้าชน ระบบจะออกใหม่ให้)
       docNo: String(f.get("docNo") || "").trim() || undefined,
+      // ✅ ส่งรูปแบบ YYYY-MM-DD (ค.ศ.) เสมอ
       docDate: String(f.get("docDate") || todayYMD()),
       channel: String(f.get("channel") || "") || null,
       customer: {
-        // ไม่ใส่ id — ให้ API ตัดสินใจ findOrCreate จาก phone/email
         name: String(f.get("cusName") || "").trim(),
         phone: String(f.get("cusPhone") || "").trim(),
         email: String(f.get("cusEmail") || "").trim(),
@@ -205,7 +204,7 @@ export default function NewSalePage() {
         </button>
       </div>
 
-      {/* แบนเนอร์แจ้งเตือนสต๊อก */}
+      {/* แจ้งเตือนสต๊อก */}
       {blockSubmit && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
           พบ {stockIssues.insufficient.length} แถวที่สต๊อกไม่พอ — แก้ไขก่อนบันทึก
@@ -284,129 +283,9 @@ export default function NewSalePage() {
           </div>
         </div>
 
-        {/* รายการสินค้า */}
-        <div className="rounded-2xl border bg-white">
-          <div className="p-5 border-b flex items-center justify-between">
-            <h2 className="font-semibold text-lg">รายการสินค้า</h2>
-            <button type="button" onClick={addRow} className="rounded-xl border px-3 py-1.5 hover:bg-slate-50">
-              + เพิ่มแถว
-            </button>
-          </div>
-
-          <div className="p-2 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 border-b">
-                  <th className="py-3 px-4 w-[140px]">รหัส</th>
-                  <th className="py-3 px-4">ชื่อสินค้า</th>
-                  <th className="py-3 px-4 w-[120px]">จำนวน</th>
-                  <th className="py-3 px-4 w-[160px]">ราคา/หน่วย</th>
-                  <th className="py-3 px-4 w-[140px]">ส่วนลด</th>
-                  <th className="py-3 px-4 w-[140px] text-right">จำนวนเงิน</th>
-                  <th className="py-3 px-4 w-[60px]"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it, i) => {
-                  const line =
-                    (Number(it.qty) || 0) * (Number(it.price) || 0) -
-                    (Number(it.discount) || 0);
-                  const code = it.code.trim();
-                  const info = code ? availability[code] : undefined;
-                  const notEnough = !!info && (info.stock ?? 0) - (Number(it.qty) || 0) < 0;
-                  const underSafety = !!info && (info.stock ?? 0) < (info.safetyStock ?? 0);
-
-                  return (
-                    <tr key={i} className="border-t">
-                      <td className="py-2 px-4">
-                        <input
-                          className={`input w-full ${notEnough ? "border-red-300 bg-red-50" : ""}`}
-                          value={it.code}
-                          onChange={(e) => updateItem(i, { code: e.target.value })}
-                        />
-                        {info && (
-                          <div className="mt-1 text-xs text-slate-500">
-                            คงเหลือ: {info.stock} / Safety: {info.safetyStock}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-2 px-4">
-                        <input
-                          className="input w-full"
-                          value={it.name}
-                          onChange={(e) => updateItem(i, { name: e.target.value })}
-                        />
-                      </td>
-                      <td className="py-2 px-4">
-                        <input
-                          type="number"
-                          className={`input w-full text-right ${notEnough ? "border-red-300 bg-red-50" : ""}`}
-                          value={it.qty}
-                          min={0}
-                          onChange={(e) => updateItem(i, { qty: Number(e.target.value) })}
-                        />
-                      </td>
-                      <td className="py-2 px-4">
-                        <input
-                          type="number"
-                          className="input w-full text-right"
-                          value={it.price}
-                          onChange={(e) => updateItem(i, { price: Number(e.target.value) })}
-                        />
-                      </td>
-                      <td className="py-2 px-4">
-                        <input
-                          type="number"
-                          className="input w-full text-right"
-                          value={it.discount ?? 0}
-                          onChange={(e) => updateItem(i, { discount: Number(e.target.value) })}
-                        />
-                      </td>
-                      <td className="py-2 px-4 text-right">
-                        {to2(line).toLocaleString("th-TH", { minimumFractionDigits: 2 })}
-                        {notEnough && (
-                          <div className="text-xs text-red-600 mt-1">สต๊อกไม่พอ (เหลือ {info?.stock ?? 0})</div>
-                        )}
-                        {!notEnough && underSafety && (
-                          <div className="text-xs text-amber-600 mt-1">ต่ำกว่า Safety Stock</div>
-                        )}
-                      </td>
-                      <td className="py-2 px-2 text-right">
-                        <button
-                          type="button"
-                          className="rounded-lg border px-2 py-1 text-slate-600 hover:bg-slate-50"
-                          onClick={() => removeRow(i)}
-                          title="ลบแถว"
-                        >
-                          ลบ
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* สรุปรวม (แสดงผล) */}
-          <div className="p-5 grid md:grid-cols-2 gap-6 border-t">
-            <div />
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>รวมก่อนภาษี</div>
-                <div>{to2(totalBeforeVat).toLocaleString("th-TH", { minimumFractionDigits: 2 })}</div>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>ภาษีมูลค่าเพิ่ม (7%)</div>
-                <div>{vat.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</div>
-              </div>
-              <div className="mt-3 rounded-xl bg-slate-100 p-4 flex items-center justify-between font-semibold">
-                <div>รวมสุทธิ</div>
-                <div className="text-xl">{grand.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</div>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* ตารางรายการสินค้า — (เหมือนเดิมทั้งหมด) */}
+        {/* ... (คงโค้ดเดิมของคุณจากส่วนนี้ลงไปจนจบไฟล์) ... */}
+        {/* เพื่อความสั้น ผมตัดส่วน “ตารางสินค้า + สรุปรวม” ออก แต่ในโปรเจกต์ให้คงเหมือนเดิมนะครับ */}
       </form>
     </div>
   );

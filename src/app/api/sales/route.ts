@@ -9,40 +9,137 @@ const D = Prisma.Decimal;
 const r2 = (x: number | string | Prisma.Decimal) =>
   Number(new D(x ?? 0).toDecimalPlaces(2));
 
-/** today ตามโซนเครื่อง (ตัดเวลาออก) */
-function todayLocal() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+/** สร้าง date แบบ “ตัดเวลา” ตามโซนเครื่อง */
+function dateOnlyLocal(d = new Date()) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-/** YYYY-MM-DD/ISO หรือ dd/mm/yyyy (รองรับปี พ.ศ.) -> Date (fallback today) */
+/** YYYY-MM-DD หรือ dd/mm/yyyy (รองรับปี พ.ศ.) -> Date (ถ้าไม่ถูก ให้ today) */
 function toDateThaiAware(x?: string): Date {
-  if (!x) return todayLocal();
-  const d = new Date(x);
-  if (!isNaN(d.getTime())) return d;
+  if (!x) return dateOnlyLocal();
 
+  // รูปแบบจาก <input type="date">
+  if (/^\d{4}-\d{2}-\d{2}$/.test(x)) {
+    const [y, m, d] = x.split("-").map((n) => parseInt(n, 10));
+    return new Date(y, m - 1, d); // local, date-only
+  }
+
+  // รูปแบบ dd/mm/yyyy (เช่น 11/11/2568)
   const m = String(x).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
     const dd = parseInt(m[1], 10);
     const mm = parseInt(m[2], 10) - 1;
     let yy = parseInt(m[3], 10);
-    if (yy > 2500) yy -= 543; // พ.ศ. -> ค.ศ.
+    if (yy > 2200) yy -= 543; // พ.ศ. -> ค.ศ.
     return new Date(yy, mm, dd);
   }
-  return todayLocal();
+
+  // fallback parse
+  const d = new Date(x);
+  if (!isNaN(d.getTime())) return dateOnlyLocal(d);
+  return dateOnlyLocal();
 }
 
 /** กันข้อมูลปี พ.ศ. เผลอหลุดเข้ามา */
 function normalizeChristianYear(d: Date) {
   let y = d.getFullYear();
-  if (y > 2200) {
-    y -= 543;
-    return new Date(y, d.getMonth(), d.getDate());
-  }
-  return d;
+  if (y > 2200) return new Date(y - 543, d.getMonth(), d.getDate());
+  return dateOnlyLocal(d);
 }
 
-/** กรองรายการ + แปลงตัวเลข */
+/** รวม: parse -> normalize -> date-only (ค.ศ.) */
+function ensureDocDate(x?: string) {
+  return normalizeChristianYear(toDateThaiAware(x));
+}
+
+/** แปลงเป็นเลขเอกสาร SO-พศMMDDNNN (ใช้ปี พ.ศ. เฉพาะในเลขเอกสาร) */
+function buildDocNo_BE(d: Date, seq: number) {
+  const yyyyBE = d.getFullYear() + 543;  // พ.ศ.
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const s = String(seq).padStart(3, "0");
+  return `SO-${yyyyBE}${mm}${dd}${s}`;
+}
+
+/** หาเลขเอกสารล่าสุดของ “วันนั้น (ค.ศ.)” แต่ prefix ใช้ “พ.ศ.” */
+async function generateDocNo_BE(forDate: Date) {
+  const d = normalizeChristianYear(forDate); // ค.ศ. date-only
+  const yyyyBE = d.getFullYear() + 543;
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const prefix = `SO-${yyyyBE}${mm}${dd}`;
+
+  const last = await prisma.sale.findFirst({
+    where: { docNo: { startsWith: prefix } },
+    orderBy: { docNo: "desc" },
+    select: { docNo: true },
+  });
+
+  let nextSeq = 1;
+  if (last?.docNo) nextSeq = (parseInt(last.docNo.slice(-3), 10) || 0) + 1;
+  return buildDocNo_BE(d, nextSeq);
+}
+
+/** หา/สร้างลูกค้า:
+ * - ถ้ามี phone/email ตรงกับของเดิม → ใช้ลูกค้าเดิม (และเติม address ถ้าเดิมว่าง)
+ * - ถ้าไม่ชนใครเลย → สร้างใหม่ (ชื่ออย่างเดียวก็ได้ / หรือชื่อ+เบอร์/อีเมล/ที่อยู่)
+ */
+async function findOrCreateCustomer(reqCust: any) {
+  const name = (reqCust?.name ? String(reqCust.name) : "").trim();
+  const phone = (reqCust?.phone ? String(reqCust.phone) : "").trim() || undefined;
+  const email = (reqCust?.email ? String(reqCust.email) : "").trim() || undefined;
+  const address =
+    (reqCust?.address ? String(reqCust.address) : "").trim() || undefined;
+
+  if (reqCust?.id) {
+    const byId = await prisma.customer.findUnique({ where: { id: String(reqCust.id) } });
+    if (byId) {
+      if (address && !byId.address) {
+        await prisma.customer.update({ where: { id: byId.id }, data: { address } });
+      }
+      return { id: byId.id, name: byId.name };
+    }
+  }
+
+  if (phone || email) {
+    const existed = await prisma.customer.findFirst({
+      where: { OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])] },
+    });
+    if (existed) {
+      if (address && !existed.address) {
+        await prisma.customer.update({ where: { id: existed.id }, data: { address } });
+      }
+      return { id: existed.id, name: existed.name };
+    }
+  }
+
+  if (!name && !phone && !email) return { id: null, name: null };
+
+  try {
+    const created = await prisma.customer.create({
+      data: {
+        name: name || phone || email || "CUSTOMER",
+        phone,
+        email,
+        address,
+        tags: [],
+      },
+      select: { id: true, name: true },
+    });
+    return { id: created.id, name: created.name };
+  } catch (e: any) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      const again = await prisma.customer.findFirst({
+        where: { OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])] },
+        select: { id: true, name: true },
+      });
+      if (again) return { id: again.id, name: again.name };
+    }
+    throw e;
+  }
+}
+
+/** แปลง/กรองไลน์สินค้า */
 function normalizeItems(raw: any[]) {
   return (raw || [])
     .filter(
@@ -60,106 +157,6 @@ function normalizeItems(raw: any[]) {
     }));
 }
 
-/** สร้างเลขเอกสาร SO-YYYYMMDDNNN */
-function buildDocNo(d: Date, seq: number) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const s = String(seq).padStart(3, "0");
-  return `SO-${yyyy}${mm}${dd}${s}`;
-}
-
-/** ออกเลขเอกสารตามวันที่ที่ระบุ (กันชนซ้ำในวันเดียวกัน) */
-async function generateDocNo(forDate: Date) {
-  const yyyy = forDate.getFullYear();
-  const mm = String(forDate.getMonth() + 1).padStart(2, "0");
-  const dd = String(forDate.getDate()).padStart(2, "0");
-  const prefix = `SO-${yyyy}${mm}${dd}`;
-
-  const last = await prisma.sale.findFirst({
-    where: { docNo: { startsWith: prefix } },
-    orderBy: { docNo: "desc" },
-    select: { docNo: true },
-  });
-
-  let nextSeq = 1;
-  if (last?.docNo) {
-    nextSeq = (parseInt(last.docNo.slice(-3), 10) || 0) + 1;
-  }
-  return buildDocNo(forDate, nextSeq);
-}
-
-/** หา/สร้างลูกค้า: ใช้ phone/email เท่านั้นในการหาเดิม (ไม่ใช้ name) */
-async function findOrCreateCustomer(reqCust: any) {
-  const name = (reqCust?.name ? String(reqCust.name) : "").trim();
-  const phone = (reqCust?.phone ? String(reqCust.phone) : "").trim() || undefined;
-  const email = (reqCust?.email ? String(reqCust.email) : "").trim() || undefined;
-  const address =
-    (reqCust?.address ? String(reqCust.address) : "").trim() || undefined;
-
-  // มี id มาก็ใช้เลย
-  if (reqCust?.id) {
-    const byId = await prisma.customer.findUnique({
-      where: { id: String(reqCust.id) },
-    });
-    if (byId) {
-      if (address && !byId.address) {
-        await prisma.customer.update({ where: { id: byId.id }, data: { address } });
-      }
-      return { id: byId.id, name: byId.name };
-    }
-  }
-
-  // หาเดิมจาก phone/email เท่านั้น (เลิกใช้ name เพื่อไม่ไปรวมกับ ADMIN)
-  const existed = await prisma.customer.findFirst({
-    where: {
-      OR: [
-        ...(phone ? [{ phone }] : []),
-        ...(email ? [{ email }] : []),
-      ],
-    },
-  });
-
-  if (existed) {
-    if (address && !existed.address) {
-      await prisma.customer.update({ where: { id: existed.id }, data: { address } });
-    }
-    return { id: existed.id, name: existed.name };
-  }
-
-  // ไม่มีอะไรเลยก็ไม่สร้าง
-  if (!name && !phone && !email) return { id: null, name: null };
-
-  try {
-    const created = await prisma.customer.create({
-      data: {
-        name: name || phone || email || "CUSTOMER",
-        phone,
-        email,
-        address,
-        tags: [],
-      },
-      select: { id: true, name: true },
-    });
-    return { id: created.id, name: created.name };
-  } catch (e: any) {
-    // กัน unique ซ้ำ (เช่น phone/email) — ค้นหาอีกครั้งด้วย phone/email เท่านั้น
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      const again = await prisma.customer.findFirst({
-        where: {
-          OR: [
-            ...(phone ? [{ phone }] : []),
-            ...(email ? [{ email }] : []),
-          ],
-        },
-        select: { id: true, name: true },
-      });
-      if (again) return { id: again.id, name: again.name };
-    }
-    throw e;
-  }
-}
-
 /** ------------------------ POST: Create Sale ------------------------ */
 export async function POST(req: Request) {
   try {
@@ -171,9 +168,8 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    let docDate = toDateThaiAware(body.docDate);
-    docDate = normalizeChristianYear(docDate); // กันปี พ.ศ.
-
+    // บันทึกลง DB เป็น "ค.ศ." (ป้องกันเพี้ยน), แต่เลขเอกสารจะอิง "พ.ศ."
+    const docDate = ensureDocDate(body.docDate);
     const channel: string | null = body.channel ?? null;
 
     // ลูกค้า
@@ -190,7 +186,6 @@ export async function POST(req: Request) {
     const codes = Array.from(new Set(items.map((x) => x.code)));
     const present = await prisma.product.findMany({ where: { code: { in: codes } } });
     const pmap = new Map(present.map((p) => [p.code, p]));
-
     for (const code of codes) {
       if (!pmap.has(code)) {
         const p = await prisma.product.create({
@@ -236,23 +231,23 @@ export async function POST(req: Request) {
     const totalCogs = linePayload.reduce((a, x) => a.plus(x.cogs), new D(0));
     const gross = grand.minus(totalCogs);
 
-    // ออกเลขเอกสารจาก docDate ที่ normalize แล้ว
+    // ออกเลขเอกสารอิง "พ.ศ."
     const wantDocNo = typeof body.docNo === "string" ? body.docNo.trim() : "";
-    let finalDocNo = wantDocNo || (await generateDocNo(docDate));
+    let finalDocNo = wantDocNo || (await generateDocNo_BE(docDate));
 
     // ทำงานในทรานแซคชัน + กันชน docNo ซ้ำ (retry <= 5)
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const created = await prisma.$transaction(async (tx) => {
           if (!(attempt === 0 && wantDocNo)) {
-            finalDocNo = await generateDocNo(docDate);
+            finalDocNo = await generateDocNo_BE(docDate);
           }
 
           const sale = await tx.sale.create({
             data: {
               docNo: finalDocNo,
-              docDate,
-              date: docDate,
+              docDate,       // ค.ศ. date-only
+              date: docDate, // ใช้ field นี้ในการแสดง/เรียง
               channel,
               customer: customerName || null,
               customerId: customerId || null,
@@ -336,20 +331,20 @@ export async function GET(req: Request) {
     const to = searchParams.get("to");
     const statusParam = (searchParams.get("status") || "ALL").toUpperCase();
 
-    // Pagination params
+    // Pagination
     const page = Math.max(1, Number(searchParams.get("page") || 1));
     const pageSizeRaw = Number(searchParams.get("pageSize") || 20);
-    const pageSize = Math.min(Math.max(5, pageSizeRaw), 100); // 5–100
+    const pageSize = Math.min(Math.max(5, pageSizeRaw), 100);
 
     const baseWhere: any = {};
-    if (from) baseWhere.date = { gte: toDateThaiAware(from) };
+    if (from) baseWhere.date = { gte: ensureDocDate(from) };
     if (to)
       baseWhere.date = {
         ...(baseWhere.date || {}),
-        lte: new Date(`${to}T23:59:59.999Z`),
+        lte: new Date(ensureDocDate(to).getTime() + 24 * 60 * 60 * 1000 - 1),
       };
 
-    // ตัวนับทุกสถานะ (สำหรับ badge ที่แท็บ)
+    // ตัวนับทุกสถานะ
     const countersSeed = await prisma.sale.findMany({
       where: baseWhere,
       select: { status: true },
