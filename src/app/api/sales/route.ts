@@ -185,6 +185,7 @@ export async function POST(req: Request) {
     const present = await prisma.product.findMany({ where: { code: { in: codes } } });
     const pmap = new Map(present.map((p) => [p.code, p]));
 
+    // auto-create product ที่ยังไม่มี
     for (const code of codes) {
       if (!pmap.has(code)) {
         const p = await prisma.product.create({
@@ -194,6 +195,7 @@ export async function POST(req: Request) {
       }
     }
 
+    // ตรวจสต๊อก
     for (const it of items) {
       const p = pmap.get(it.code)!;
       if ((p.stock ?? 0) - it.qty < 0) {
@@ -204,6 +206,7 @@ export async function POST(req: Request) {
       }
     }
 
+    // คำนวณยอด
     let subtotal = new D(0);
     const linePayload = items.map((it) => {
       const p = pmap.get(it.code)!;
@@ -231,6 +234,7 @@ export async function POST(req: Request) {
     const wantDocNo = typeof body.docNo === "string" ? body.docNo.trim() : "";
     let finalDocNo = wantDocNo || (await generateDocNo(docDate));
 
+    // กันชนเลขเอกสารซ้ำ
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const created = await prisma.$transaction(async (tx) => {
@@ -265,6 +269,7 @@ export async function POST(req: Request) {
             select: { id: true, docNo: true, docDate: true },
           });
 
+          // ตัดสต๊อก
           await Promise.all(
             linePayload.map((x) =>
               tx.product.update({
@@ -332,12 +337,13 @@ export async function GET(req: Request) {
 
     const baseWhere: any = {};
     if (from) baseWhere.date = { gte: toDateThaiAware(from) };
-    if (to)
-      baseWhere.date = {
-        ...(baseWhere.date || {}),
-        lte: new Date(`${to}T23:59:59.999Z`),
-      };
+    if (to) {
+      const t = toDateThaiAware(to);
+      t.setHours(23, 59, 59, 999);
+      baseWhere.date = { ...(baseWhere.date || {}), lte: t };
+    }
 
+    // นับแท็บสถานะ
     const countersSeed = await prisma.sale.findMany({
       where: baseWhere,
       select: { status: true },
@@ -354,20 +360,16 @@ export async function GET(req: Request) {
 
     const totalCount = await prisma.sale.count({ where });
 
+    // ❗ ใช้ select อย่างเดียว (ไม่มี include)
     const sales = await prisma.sale.findMany({
       where,
       orderBy: { date: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: {
-        items: true,
-        user: { select: { id: true, username: true, name: true } },
-        customerRef: { select: { id: true, name: true, phone: true, email: true, address: true } },
-      },
       select: {
         id: true,
         docNo: true,
-        docDate: true, // เพิ่มให้ UI เอาไปแสดง dd/MM/yyyy (ค.ศ.)
+        docDate: true, // UI ใช้แสดง dd/MM/yyyy (ค.ศ.)
         date: true,
         customer: true,
         channel: true,
@@ -375,8 +377,10 @@ export async function GET(req: Request) {
         status: true,
         user: { select: { id: true, username: true, name: true } },
         items: true,
-        customerRef: { select: { id: true, name: true, phone: true, email: true, address: true } },
-      } as any,
+        customerRef: {
+          select: { id: true, name: true, phone: true, email: true, address: true },
+        },
+      },
     });
 
     const allForSummary = await prisma.sale.findMany({
