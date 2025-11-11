@@ -12,9 +12,8 @@ function LoginContent() {
   const router = useRouter();
   const sp = useSearchParams();
   const tab = sp.get("tab") || "login";
-  const { toast } = useToast(); // ✅ ให้รูปแบบเดียวกับหน้าอื่น
+  const { toast } = useToast();
 
-  // ✅ โชว์ข้อความเมื่อถูก redirect มาจากหน้าสมัคร/ล็อกเอาต์ แล้วล้าง query กันยิงซ้ำ
   useEffect(() => {
     let changed = false;
 
@@ -46,9 +45,9 @@ function LoginContent() {
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sp, router, toast]);
+  }, [sp]);
 
-  // ---------- REGISTER STATE ----------
+  // ---------- REGISTER ----------
   const [reg, setReg] = useState({
     username: "",
     password: "",
@@ -62,7 +61,6 @@ function LoginContent() {
       toast.error("กรุณากรอก Username, Password และ SIGNUP CODE");
       return;
     }
-
     setLoading(true);
     try {
       const res = await fetch("/api/register", {
@@ -73,7 +71,6 @@ function LoginContent() {
       const data = await res.json().catch(() => ({}));
 
       if (res.ok && data?.ok) {
-        // ✅ สมัครสำเร็จ: เด้งไปหน้า login พร้อม query สำหรับโชว์ toast
         router.replace("/login?registered=1");
         return;
       }
@@ -85,94 +82,90 @@ function LoginContent() {
     }
   }
 
-  // ---------- LOGIN TAB ----------
   if (tab === "login") {
     return (
-      <main className="min-h-screen grid place-items-center p-4">
-        <div className="w-full max-w-md">
-          <div className="card p-6">
-            <h1 className="text-lg font-semibold text-center mb-6">
-              Sakura Biotech Co., Ltd. — Login
-            </h1>
+      <main className="p-0">
+        <div className="card p-6 shadow-sm rounded-2xl">
+          <h1 className="text-lg font-semibold text-center mb-6">
+            Sakura Biotech Co., Ltd. — Login
+          </h1>
 
-            {/* ✅ ใช้ LoginForm ของคุณ “โดยไม่ส่ง props” */}
-            <LoginForm />
+          {/* LoginForm ของคุณ */}
+          <LoginForm />
 
-            <div className="mt-4 text-center text-sm text-slate-500">
-              ไม่มีบัญชี?{" "}
-              <a href="/login?tab=register" className="text-blue-600 hover:underline">
-                สมัครสมาชิกที่นี่
-              </a>
-            </div>
+          <div className="mt-4 text-center text-sm text-slate-500">
+            ไม่มีบัญชี?{" "}
+            <a href="/login?tab=register" className="text-blue-600 hover:underline">
+              สมัครสมาชิกที่นี่
+            </a>
           </div>
         </div>
       </main>
     );
   }
 
-  // ---------- REGISTER TAB ----------
+  // Register tab
   return (
-    <main className="min-h-screen grid place-items-center p-4">
-      <div className="w-full max-w-md">
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-center mb-6">ลงทะเบียนพนักงาน</h2>
+    <main className="p-0">
+      <div className="card p-6 shadow-sm rounded-2xl">
+        <h2 className="text-lg font-semibold text-center mb-6">ลงทะเบียนพนักงาน</h2>
 
-          <div className="space-y-1">
-            <label className="text-sm text-slate-600">Username</label>
-            <input
-              className="input"
-              value={reg.username}
-              onChange={(e) => setReg({ ...reg, username: e.target.value.trim() })}
-              placeholder="ชื่อผู้ใช้บริษัท"
-            />
-          </div>
-
-          <div className="space-y-1 mt-3">
-            <label className="text-sm text-slate-600">Password</label>
-            <input
-              type="password"
-              className="input"
-              value={reg.password}
-              onChange={(e) => setReg({ ...reg, password: e.target.value })}
-              placeholder="รหัสผ่าน"
-            />
-          </div>
-
-          <div className="space-y-1 mt-3">
-            <label className="text-sm text-slate-600">ชื่อที่แสดง (ไม่บังคับ)</label>
-            <input
-              className="input"
-              value={reg.name}
-              onChange={(e) => setReg({ ...reg, name: e.target.value })}
-              placeholder="เช่น สมชาย ใจดี"
-            />
-          </div>
-
-          <div className="space-y-1 mt-3">
-            <label className="text-sm text-slate-600">SIGNUP CODE</label>
-            <input
-              className="input"
-              value={reg.signupCode}
-              onChange={(e) => setReg({ ...reg, signupCode: e.target.value.trim() })}
-              placeholder="รหัสบริษัท (เช่น SAKURA-ONLY)"
-            />
-          </div>
-
-          <button
-            onClick={register}
-            disabled={loading}
-            className="btn btn-primary w-full mt-5"
-          >
-            {loading ? "กำลังสมัคร..." : "สมัครสมาชิก"}
-          </button>
-
-          <p className="text-center text-sm mt-3 text-slate-500">
-            มีบัญชีแล้ว?{" "}
-            <a href="/login" className="text-blue-600 hover:underline">
-              เข้าสู่ระบบ
-            </a>
-          </p>
+        <div className="space-y-1">
+          <label className="text-sm text-slate-600">Username</label>
+          <input
+            className="input"
+            inputMode="text"
+            autoCapitalize="none"
+            autoCorrect="off"
+            value={reg.username}
+            onChange={(e) => setReg({ ...reg, username: e.target.value.trim() })}
+            placeholder="ชื่อผู้ใช้บริษัท"
+          />
         </div>
+
+        <div className="space-y-1 mt-3">
+          <label className="text-sm text-slate-600">Password</label>
+          <input
+            type="password"
+            className="input"
+            value={reg.password}
+            onChange={(e) => setReg({ ...reg, password: e.target.value })}
+            placeholder="รหัสผ่าน"
+          />
+        </div>
+
+        <div className="space-y-1 mt-3">
+          <label className="text-sm text-slate-600">ชื่อที่แสดง (ไม่บังคับ)</label>
+          <input
+            className="input"
+            value={reg.name}
+            onChange={(e) => setReg({ ...reg, name: e.target.value })}
+            placeholder="เช่น สมชาย ใจดี"
+          />
+        </div>
+
+        <div className="space-y-1 mt-3">
+          <label className="text-sm text-slate-600">SIGNUP CODE</label>
+          <input
+            className="input"
+            inputMode="text"
+            autoCapitalize="characters"
+            value={reg.signupCode}
+            onChange={(e) => setReg({ ...reg, signupCode: e.target.value.trim() })}
+            placeholder="รหัสบริษัท (เช่น SAKURA-ONLY)"
+          />
+        </div>
+
+        <button onClick={register} disabled={loading} className="btn btn-primary w-full mt-5">
+          {loading ? "กำลังสมัคร..." : "สมัครสมาชิก"}
+        </button>
+
+        <p className="text-center text-sm mt-3 text-slate-500">
+          มีบัญชีแล้ว?{" "}
+          <a href="/login" className="text-blue-600 hover:underline">
+            เข้าสู่ระบบ
+          </a>
+        </p>
       </div>
     </main>
   );

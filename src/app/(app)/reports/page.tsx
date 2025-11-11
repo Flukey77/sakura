@@ -13,6 +13,13 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  BarChart2,
+  PiggyBank,
+  PackageSearch,
+  Facebook as FacebookIcon,
+  Clapperboard as TikTokIcon, // ใช้แทนไอคอน TikTok
+} from "lucide-react";
 
 // กัน static export/ISR สำหรับเส้นทางนี้
 export const dynamic = "force-dynamic";
@@ -145,13 +152,38 @@ function ReportsInner() {
         </button>
       </div>
 
-      {/* KPI row */}
+      {/* KPI row – ไอคอน/สไตล์ใหม่ */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <KpiCard title="ยอดขายรวม" value={`${fmt(total)} ฿`} />
-        <KpiCard title="กำไรขั้นต้น" value={`${fmt(gross)} ฿`} />
-        <KpiCard title="ต้นทุนขาย (COGS)" value={`${fmt(cogs)} ฿`} />
-        <KpiCard title="ยอดขาย Facebook" value={`${fmt(fbTotal)} ฿`} />
-        <KpiCard title="ยอดขาย TikTok" value={`${fmt(ttTotal)} ฿`} />
+        <KpiCard
+          title="ยอดขายรวม"
+          value={`${fmt(total)} ฿`}
+          icon={<BarChart2 className="h-5 w-5" />}
+          accent="blue"
+        />
+        <KpiCard
+          title="กำไรขั้นต้น"
+          value={`${fmt(gross)} ฿`}
+          icon={<PiggyBank className="h-5 w-5" />}
+          accent="emerald"
+        />
+        <KpiCard
+          title="ต้นทุนขาย (COGS)"
+          value={`${fmt(cogs)} ฿`}
+          icon={<PackageSearch className="h-5 w-5" />}
+          accent="slate"
+        />
+        <KpiCard
+          title="ยอดขาย Facebook"
+          value={`${fmt(fbTotal)} ฿`}
+          icon={<FacebookIcon className="h-5 w-5" />}
+          accent="indigo"
+        />
+        <KpiCard
+          title="ยอดขาย TikTok"
+          value={`${fmt(ttTotal)} ฿`}
+          icon={<TikTokIcon className="h-5 w-5" />}
+          accent="pink"
+        />
       </section>
 
       {/* ตาราง + กราฟ */}
@@ -262,12 +294,36 @@ export default function ReportsPage() {
 }
 
 /* ------------ Small components ------------ */
-function KpiCard({ title, value }: { title: string; value: string }) {
+function KpiCard({
+  title,
+  value,
+  icon,
+  accent = "blue",
+}: {
+  title: string;
+  value: string;
+  icon: React.ReactNode;
+  /** tailwind สีหลัก: blue | emerald | slate | indigo | pink */
+  accent?: "blue" | "emerald" | "slate" | "indigo" | "pink";
+}) {
+  const ring =
+    accent === "emerald"
+      ? "from-emerald-100 to-emerald-50 text-emerald-700 ring-emerald-200"
+      : accent === "slate"
+      ? "from-slate-100 to-white text-slate-700 ring-slate-200"
+      : accent === "indigo"
+      ? "from-indigo-100 to-indigo-50 text-indigo-700 ring-indigo-200"
+      : accent === "pink"
+      ? "from-pink-100 to-pink-50 text-pink-700 ring-pink-200"
+      : "from-blue-100 to-blue-50 text-blue-700 ring-blue-200";
+
   return (
     <div className="card">
       <div className="card-body flex items-center gap-4">
-        <div className="h-10 w-10 rounded-xl grid place-items-center ring-1 ring-slate-200 bg-white">
-          <span aria-hidden>📊</span>
+        <div
+          className={`h-11 w-11 rounded-2xl grid place-items-center ring-1 bg-gradient-to-b ${ring}`}
+        >
+          {icon}
         </div>
         <div>
           <div className="text-slate-500 text-sm">{title}</div>

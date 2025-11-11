@@ -2,13 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import NumericInput from "@/app/components/NumericInput";
 
 type Line = {
   code: string;
   name: string;
-  qty: number;
-  price: number;
-  discount: number;
+
+  // ใช้ string เพื่อให้พิมพ์/ลบบนมือถือได้ลื่น
+  qtyStr: string;       // จำนวน (ทศนิยม 0)
+  priceStr: string;     // ราคา/หน่วย
+  discountStr: string;  // ส่วนลด
+
   // availability
   stock?: number;
   safetyStock?: number;
@@ -44,6 +48,9 @@ function fromDateToThai(d: Date): string {
   return `${dd}/${mm}/${yy}`;
 }
 
+// helper parse
+const N = (s: string) => (s?.trim() === "" ? 0 : Number(s.replace(/,/g, "")) || 0);
+
 export default function NewSalePage() {
   const router = useRouter();
 
@@ -60,7 +67,9 @@ export default function NewSalePage() {
   const [custAddress, setCustAddress] = useState("");
 
   // lines
-  const [lines, setLines] = useState<Line[]>([{ code: "", name: "", qty: 1, price: 0, discount: 0 }]);
+  const [lines, setLines] = useState<Line[]>([
+    { code: "", name: "", qtyStr: "1", priceStr: "0", discountStr: "0" },
+  ]);
 
   // save
   const [saving, setSaving] = useState(false);
@@ -109,7 +118,7 @@ export default function NewSalePage() {
   }
 
   function addRow() {
-    setLines(prev => [...prev, { code: "", name: "", qty: 1, price: 0, discount: 0 }]);
+    setLines(prev => [...prev, { code: "", name: "", qtyStr: "1", priceStr: "0", discountStr: "0" }]);
   }
   function removeRow(i: number) {
     setLines(prev => prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i));
@@ -117,7 +126,7 @@ export default function NewSalePage() {
 
   // คำนวณยอด (รวม/แยกภาษี)
   const totals = useMemo(() => {
-    const subtotal = lines.reduce((a, x) => a + (x.qty * x.price - x.discount), 0);
+    const subtotal = lines.reduce((a, x) => a + (N(x.qtyStr) * N(x.priceStr) - N(x.discountStr)), 0);
     if (taxMode === "EXCLUSIVE") {
       const vat = subtotal * 0.07;
       return { subtotal, vat, grand: subtotal + vat };
@@ -139,11 +148,21 @@ export default function NewSalePage() {
           name: custName, phone: custPhone, email: custEmail, address: custAddress,
         },
         items: lines
-          .filter(l => (l.code || l.name) && l.qty > 0)
-          .map(l => ({ code: l.code.trim(), name: l.name.trim(), qty: l.qty, price: l.price, discount: l.discount })),
+          .filter(l => (l.code || l.name) && N(l.qtyStr) > 0)
+          .map(l => ({
+            code: l.code.trim(),
+            name: l.name.trim(),
+            qty: N(l.qtyStr),
+            price: N(l.priceStr),
+            discount: N(l.discountStr),
+          })),
       };
 
-      const r = await fetch("/api/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const r = await fetch("/api/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       const j = await r.json();
       if (!r.ok || j?.ok === false) throw new Error(j?.message || "บันทึกไม่สำเร็จ");
 
@@ -172,6 +191,7 @@ export default function NewSalePage() {
             <input
               className="input"
               placeholder="dd/MM/yyyy"
+              inputMode="numeric"
               value={docDate}
               onChange={(e) => setDocDate(e.target.value)}
             />
@@ -201,9 +221,9 @@ export default function NewSalePage() {
             <div className="text-slate-600">ชื่อลูกค้า</div>
             <input className="input" placeholder="พิมพ์ชื่อลูกค้า" value={custName} onChange={(e) => setCustName(e.target.value)} />
             <div className="text-slate-600">เบอร์โทรศัพท์ลูกค้า</div>
-            <input className="input" placeholder="เช่น 0950000000" value={custPhone} onChange={(e) => setCustPhone(e.target.value)} />
+            <input className="input" inputMode="tel" placeholder="เช่น 0950000000" value={custPhone} onChange={(e) => setCustPhone(e.target.value)} />
             <div className="text-slate-600">อีเมลลูกค้า</div>
-            <input className="input" placeholder="someone@email.com" value={custEmail} onChange={(e) => setCustEmail(e.target.value)} />
+            <input className="input" inputMode="email" placeholder="someone@email.com" value={custEmail} onChange={(e) => setCustEmail(e.target.value)} />
             <div className="text-slate-600">ที่อยู่ลูกค้า</div>
             <textarea className="input" rows={3} placeholder="ที่อยู่ออกเอกสาร/จัดส่ง" value={custAddress} onChange={(e) => setCustAddress(e.target.value)} />
           </div>
@@ -233,8 +253,15 @@ export default function NewSalePage() {
               </thead>
               <tbody>
                 {lines.map((ln, i) => {
-                  const amount = ln.qty * ln.price - ln.discount;
-                  const low = typeof ln.stock === "number" && typeof ln.safetyStock === "number" && ln.stock < ln.safetyStock;
+                  const qty = N(ln.qtyStr);
+                  const price = N(ln.priceStr);
+                  const discount = N(ln.discountStr);
+                  const amount = qty * price - discount;
+                  const low =
+                    typeof ln.stock === "number" &&
+                    typeof ln.safetyStock === "number" &&
+                    ln.stock < ln.safetyStock;
+
                   return (
                     <tr key={i} className="border-t align-top">
                       <td className="py-2 pr-3">
@@ -248,28 +275,66 @@ export default function NewSalePage() {
                         {ln.loading ? (
                           <div className="mt-1 text-[12px] text-slate-400">กำลังเช็คสต๊อก…</div>
                         ) : typeof ln.stock === "number" ? (
-                          <div className={`mt-1 text-[12px] px-2 py-0.5 rounded ${low ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-                            สต๊อก {ln.stock.toLocaleString("th-TH")} | Safety {ln.safetyStock?.toLocaleString("th-TH")}
+                          <div
+                            className={`mt-1 text-[12px] px-2 py-0.5 rounded ${
+                              low ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            สต๊อก {ln.stock.toLocaleString("th-TH")} | Safety{" "}
+                            {ln.safetyStock?.toLocaleString("th-TH")}
                             {low && <b className="ml-1">สต๊อกใกล้หมด</b>}
                           </div>
                         ) : null}
                       </td>
+
                       <td className="py-2 pr-3">
-                        <input className="input" value={ln.name} onChange={(e) => updateLine(i, { name: e.target.value })} placeholder="ชื่อสินค้า" />
+                        <input
+                          className="input"
+                          value={ln.name}
+                          onChange={(e) => updateLine(i, { name: e.target.value })}
+                          placeholder="ชื่อสินค้า"
+                        />
                       </td>
+
                       <td className="py-2 pr-3">
-                        <input className="input" type="number" value={ln.qty} onChange={(e) => updateLine(i, { qty: Number(e.target.value) })} />
+                        <NumericInput
+                          className="input"
+                          value={ln.qtyStr}
+                          onChange={(v) => updateLine(i, { qtyStr: v })}
+                          decimals={0}
+                          placeholder="จำนวน"
+                        />
                       </td>
+
                       <td className="py-2 pr-3">
-                        <input className="input" type="number" value={ln.price} onChange={(e) => updateLine(i, { price: Number(e.target.value) })} />
+                        <NumericInput
+                          className="input"
+                          value={ln.priceStr}
+                          onChange={(v) => updateLine(i, { priceStr: v })}
+                          decimals={2}
+                          placeholder="ราคา/หน่วย"
+                        />
                       </td>
+
                       <td className="py-2 pr-3">
-                        <input className="input" type="number" value={ln.discount} onChange={(e) => updateLine(i, { discount: Number(e.target.value) })} />
+                        <NumericInput
+                          className="input"
+                          value={ln.discountStr}
+                          onChange={(v) => updateLine(i, { discountStr: v })}
+                          decimals={2}
+                          placeholder="ส่วนลด"
+                        />
                       </td>
+
                       <td className="py-2 pr-3 align-middle">฿{fmtBaht(amount)}</td>
                       <td className="py-2 pr-0">
                         <div className="flex justify-end">
-                          <button className="btn border-red-200 text-red-600 hover:bg-red-50" onClick={() => removeRow(i)}>ลบ</button>
+                          <button
+                            className="btn border-red-200 text-red-600 hover:bg-red-50"
+                            onClick={() => removeRow(i)}
+                          >
+                            ลบ
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -296,7 +361,7 @@ export default function NewSalePage() {
           </div>
 
           {/* ปุ่มบันทึก */}
-          <div className="card-footer flex justify-end gap-2">
+          <div className="card-footer flex justify-end gap-2 p-4 border-t">
             <button className="btn" onClick={() => router.push("/sales")}>ยกเลิก</button>
             <button className="btn btn-primary" onClick={save} disabled={saving}>
               {saving ? "กำลังบันทึก…" : "บันทึก"}

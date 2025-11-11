@@ -25,19 +25,37 @@
   *:focus-visible {
     @apply outline-none ring-2 ring-blue-500/40 ring-offset-2;
   }
+
+  /* ซ่อน spinner ของ number ถ้าหลงเหลืออยู่ในบาง input */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] { -moz-appearance: textfield; }
 }
 
 /* ---------- Components ---------- */
 @layer components {
-  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors duration-200 border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 active:scale-[.99] disabled:opacity-60 disabled:cursor-not-allowed; }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
+    transition-colors duration-200 border border-slate-300 bg-white text-slate-700
+    hover:bg-slate-100 active:scale-[.99] disabled:opacity-60 disabled:cursor-not-allowed;
+    min-height: 44px; /* กดง่ายบนมือถือ */
+  }
   .btn-primary { @apply border-transparent bg-blue-600 text-white hover:bg-blue-700; }
   .btn-dark { @apply border-transparent bg-slate-900 text-white hover:bg-black; }
   .btn-ghost { @apply border-transparent bg-transparent text-slate-700 hover:bg-slate-100; }
 
-  .input { @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-200; }
+  .input {
+    @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm
+    placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-200;
+    min-height: 44px; /* กดง่ายบนมือถือ */
+  }
   .select { @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:border-slate-400 focus:ring-2 focus:ring-slate-200; }
 
   .card { @apply rounded-2xl border border-slate-200 bg-white shadow-sm; }
+  .card-body { @apply p-4; }
 
   .th { @apply px-5 py-3 text-left text-sm font-medium text-slate-500; }
   .td { @apply px-5 py-3 text-sm text-slate-700; }
