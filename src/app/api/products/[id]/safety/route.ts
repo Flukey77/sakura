@@ -1,40 +1,31 @@
 import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 
-export async function PATCH(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** PATCH /api/products/:id/safety  body: { safetyStock:number } */
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
-    const { safetyStock } = await req.json();
-
-    const val = Number(safetyStock ?? 0);
-    if (!Number.isInteger(val) || val < 0) {
-      return NextResponse.json(
-        { ok: false, message: "ค่าไม่ถูกต้อง" },
-        { status: 400 }
-      );
+    const idNum = Number(params.id);
+    if (!Number.isInteger(idNum)) {
+      return NextResponse.json({ ok: false, error: "Invalid product id" }, { status: 400 });
     }
 
-    const productId = Number(params.id);
-    if (!Number.isInteger(productId)) {
-      return NextResponse.json(
-        { ok: false, message: "รหัสสินค้าไม่ถูกต้อง" },
-        { status: 400 }
-      );
+    const body = await req.json().catch(() => ({} as any));
+    const n = Number(body?.safetyStock);
+    if (!Number.isInteger(n) || n < 0) {
+      return NextResponse.json({ ok: false, error: "safetyStock must be non-negative integer" }, { status: 400 });
     }
 
-    const p = await prisma.product.update({
-      where: { id: productId },
-      data: { safetyStock: val },
-      select: { id: true, code: true, stock: true, safetyStock: true },
+    const product = await prisma.product.update({
+      where: { id: idNum },
+      data: { safetyStock: n },
+      select: { id: true, code: true, name: true, safetyStock: true },
     });
 
-    return NextResponse.json({ ok: true, product: p });
+    return NextResponse.json({ ok: true, product });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, message: e?.message ?? "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message ?? "update failed" }, { status: 500 });
   }
 }
