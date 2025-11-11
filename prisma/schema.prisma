@@ -47,11 +47,21 @@ model Customer {
   phone     String?   @unique
   email     String?   @unique
   tags      String[]
+
+  /// ที่อยู่ลูกค้า (ใหม่)
+  address   String?
+
+  /// บันทึกเพิ่มเติม (ยังใช้ได้)
   note      String?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
   sales     Sale[]
+
+  @@index([name])
+  @@index([phone])
+  @@index([email])
 }
 
 model Product {
@@ -80,7 +90,7 @@ model Sale {
   docDate       DateTime
   date          DateTime       @default(now())
 
-  // เก็บค่าเดิมเป็นสตริงเพื่อรองรับข้อมูลเก่า
+  // เก็บค่าเดิมเป็นสตริงเพื่อรองรับข้อมูลเก่า/ fallback
   customer      String?
   channel       String?
 
@@ -126,6 +136,7 @@ model SaleItem {
   @@index([productId])
 }
 
+/** ค่าโฆษณารายวัน */
 model AdSpendDaily {
   id           Int        @id @default(autoincrement())
   date         DateTime   @db.Date
