@@ -1,4 +1,5 @@
-﻿"use client";
+﻿// src/app/(app)/sales/page.tsx
+"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -9,6 +10,7 @@ type Sale = {
   id: string;
   docNo: string;
   date: string | Date;
+  docDate?: string | Date;
   customer: string | null;
   channel: string | null;
   total: number;
@@ -78,28 +80,26 @@ function SalesContent() {
 
   const tab = (sp.get("status") || "ALL").toUpperCase();
   const page = Math.max(1, Number(sp.get("page") || 1));
+  // default 10 ต่อหน้า
   const pageSize = Math.min(Math.max(5, Number(sp.get("pageSize") || 10)), 100);
   const q = (sp.get("q") || "").trim();
-
-  const [search, setSearch] = useState(q);
-  useEffect(() => setSearch(q), [q]);
 
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [data, setData] = useState<ApiRes | null>(null);
+  const [search, setSearch] = useState(q);
 
   const load = async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const params = new URLSearchParams({
-        status: tab,
-        page: String(page),
-        pageSize: String(pageSize),
-      });
-      if (q) params.set("q", q);
-      const url = `/api/sales?${params.toString()}`;
+      const qs = new URLSearchParams();
+      qs.set("status", tab);
+      qs.set("page", String(page));
+      qs.set("pageSize", String(pageSize));
+      if (q) qs.set("q", q);
+      const url = `/api/sales?${qs.toString()}`;
       const res = await fetch(url, { cache: "no-store" });
       const j = (await res.json()) as ApiRes;
       if (!res.ok || j.ok === false) throw new Error(j?.message || "โหลดข้อมูลล้มเหลว");
@@ -113,28 +113,33 @@ function SalesContent() {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, page, pageSize, q]);
 
-  const setParamAndPush = (patch: Record<string, string>) => {
+  const goto = (p: number) => {
     const params = new URLSearchParams(sp.toString());
-    Object.entries(patch).forEach(([k, v]) => params.set(k, v));
+    params.set("status", tab);
+    params.set("page", String(Math.max(1, p)));
+    params.set("pageSize", String(pageSize));
+    if (q) params.set("q", q); else params.delete("q");
     router.push(`/sales?${params.toString()}`);
   };
 
-  const doSearch = () => {
-    setParamAndPush({ status: tab, page: "1", pageSize: String(pageSize), q: search.trim() });
+  const applySearch = () => {
+    const params = new URLSearchParams(sp.toString());
+    params.set("status", tab);
+    params.set("page", "1");
+    params.set("pageSize", String(pageSize));
+    if (search.trim()) params.set("q", search.trim()); else params.delete("q");
+    router.push(`/sales?${params.toString()}`);
   };
 
   const clearSearch = () => {
     setSearch("");
     const params = new URLSearchParams(sp.toString());
-    params.delete("q");
-    params.set("page", "1");
     params.set("status", tab);
+    params.set("page", "1");
     params.set("pageSize", String(pageSize));
+    params.delete("q");
     router.push(`/sales?${params.toString()}`);
   };
-
-  const goto = (p: number) =>
-    setParamAndPush({ status: tab, page: String(Math.max(1, p)), pageSize: String(pageSize), ...(q ? { q } : {}) });
 
   const changeStatus = async (id: string, status: string) => {
     if (!confirm(`ยืนยันเปลี่ยนสถานะเป็น "${TH_STATUS[status]?.label || status}" ?`)) return;
@@ -166,6 +171,7 @@ function SalesContent() {
 
   return (
     <div className="space-y-6">
+      {/* สรุปยอด */}
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="rounded-2xl border bg-white"><div className="p-5">
           <div className="text-slate-500">จำนวนออเดอร์</div>
@@ -187,14 +193,19 @@ function SalesContent() {
         </div>
       </div>
 
-      {/* แถบสถานะ + กล่องค้นหา */}
+      {/* แถบสถานะ + ค้นหา + ปุ่ม */}
       <div className="flex flex-wrap items-center gap-2">
         {TABS.map((t) => (
           <button
             key={t.key}
-            onClick={() =>
-              setParamAndPush({ status: t.key, page: "1", pageSize: String(pageSize), ...(q ? { q } : {}) })
-            }
+            onClick={() => {
+              const params = new URLSearchParams(sp.toString());
+              params.set("status", t.key);
+              params.set("page", "1");
+              params.set("pageSize", String(pageSize));
+              if (q) params.set("q", q); else params.delete("q");
+              router.push(`/sales?${params.toString()}`);
+            }}
             className={`px-3 py-1.5 rounded-xl border ${
               tab === t.key ? "bg-slate-900 text-white border-slate-900" : "bg-white"
             }`}
@@ -206,31 +217,31 @@ function SalesContent() {
             )}
           </button>
         ))}
+
         <div className="flex-1" />
+
+        {/* กล่องค้นหา */}
         <div className="flex items-center gap-2">
           <input
-            className="input w-[240px]"
-            placeholder="ค้นหา เลขเอกสาร/ชื่อลูกค้า"
+            className="input w-[260px]"
+            placeholder="ค้นหา เลขเอกสาร/ลูกค้า"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && doSearch()}
+            onKeyDown={(e) => e.key === "Enter" && applySearch()}
           />
-          {q ? (
-            <button className="btn" onClick={clearSearch} disabled={loading}>ล้าง</button>
-          ) : null}
-          <button className="btn" onClick={doSearch} disabled={loading}>{loading ? "ค้นหา…" : "ค้นหา"}</button>
-          <button onClick={() => router.push("/sales/new")} className="rounded-xl bg-blue-600 text-white px-4 py-2">สร้าง</button>
-          <button onClick={load} className="rounded-xl border px-4 py-2 disabled:opacity-60" disabled={loading}>
-            {loading ? "กำลังโหลด…" : "รีเฟรช"}
-          </button>
+          <button className="btn" onClick={applySearch} disabled={loading}>ค้นหา</button>
+          {q && (
+            <button className="btn btn-secondary" onClick={clearSearch} disabled={loading}>
+              ล้าง
+            </button>
+          )}
         </div>
-      </div>
 
-      {q && (
-        <div className="text-sm text-slate-500">
-          ผลการค้นหา: <span className="font-medium">"{q}"</span>
-        </div>
-      )}
+        <button onClick={() => router.push("/sales/new")} className="rounded-xl bg-blue-600 text-white px-4 py-2">สร้าง</button>
+        <button onClick={load} className="rounded-xl border px-4 py-2 disabled:opacity-60" disabled={loading}>
+          {loading ? "กำลังโหลด…" : "รีเฟรช"}
+        </button>
+      </div>
 
       {errorMsg && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
@@ -238,6 +249,7 @@ function SalesContent() {
         </div>
       )}
 
+      {/* ตาราง */}
       <div className="rounded-2xl border bg-white overflow-auto">
         <table className="w-full text-sm">
           <thead>
@@ -291,6 +303,7 @@ function SalesContent() {
         </table>
       </div>
 
+      {/* แบ่งหน้า */}
       <div className="flex items-center justify-center gap-2">
         <PageBtn disabled={curPage <= 1} onClick={() => goto(curPage - 1)}>«</PageBtn>
         {start > 1 && (<><PageBtn onClick={() => goto(1)}>1</PageBtn>{start > 2 && <span className="px-1 text-slate-400">…</span>}</>)}
