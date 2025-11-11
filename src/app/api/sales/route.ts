@@ -1,5 +1,4 @@
-﻿// src/app/api/sales/route.ts
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
@@ -10,13 +9,12 @@ const D = Prisma.Decimal;
 const r2 = (x: number | string | Prisma.Decimal) =>
   Number(new D(x ?? 0).toDecimalPlaces(2));
 
-/** today ตามโซนเครื่อง (ตัดเวลาออก) */
 function todayLocal() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-/** YYYY-MM-DD/ISO หรือ dd/mm/yyyy (รองรับปี พ.ศ.) -> Date (fallback today) */
+/** YYYY-MM-DD หรือ dd/mm/yyyy (รองรับ พ.ศ.) -> Date */
 function toDateThaiAware(x?: string): Date {
   if (!x) return todayLocal();
   const d = new Date(x);
@@ -27,7 +25,7 @@ function toDateThaiAware(x?: string): Date {
     const dd = parseInt(m[1], 10);
     const mm = parseInt(m[2], 10) - 1;
     let yy = parseInt(m[3], 10);
-    if (yy > 2500) yy -= 543; // พ.ศ. -> ค.ศ.
+    if (yy > 2500) yy -= 543;
     return new Date(yy, mm, dd);
   }
   return todayLocal();
@@ -43,7 +41,6 @@ function normalizeChristianYear(d: Date) {
   return d;
 }
 
-/** กรองรายการ + แปลงตัวเลข */
 function normalizeItems(raw: any[]) {
   return (raw || [])
     .filter(
@@ -70,7 +67,6 @@ function buildDocNo(d: Date, seq: number) {
   return `SO-${yyyy}${mm}${dd}${s}`;
 }
 
-/** ออกเลขเอกสารตามวันที่ที่ระบุ (กันชนซ้ำในวันเดียวกัน) */
 async function generateDocNo(forDate: Date) {
   const yyyy = forDate.getFullYear();
   const mm = String(forDate.getMonth() + 1).padStart(2, "0");
@@ -90,7 +86,7 @@ async function generateDocNo(forDate: Date) {
   return buildDocNo(forDate, nextSeq);
 }
 
-/** หา/สร้างลูกค้า: ใช้ phone/email เท่านั้นในการหาเดิม (ไม่ใช้ name) */
+/** หา/สร้างลูกค้า (ใช้ phone/email เป็นหลัก) */
 async function findOrCreateCustomer(reqCust: any) {
   const name = (reqCust?.name ? String(reqCust.name) : "").trim();
   const phone = (reqCust?.phone ? String(reqCust.phone) : "").trim() || undefined;
@@ -99,9 +95,7 @@ async function findOrCreateCustomer(reqCust: any) {
     (reqCust?.address ? String(reqCust.address) : "").trim() || undefined;
 
   if (reqCust?.id) {
-    const byId = await prisma.customer.findUnique({
-      where: { id: String(reqCust.id) },
-    });
+    const byId = await prisma.customer.findUnique({ where: { id: String(reqCust.id) } });
     if (byId) {
       if (address && !byId.address) {
         await prisma.customer.update({ where: { id: byId.id }, data: { address } });
@@ -111,14 +105,8 @@ async function findOrCreateCustomer(reqCust: any) {
   }
 
   const existed = await prisma.customer.findFirst({
-    where: {
-      OR: [
-        ...(phone ? [{ phone }] : []),
-        ...(email ? [{ email }] : []),
-      ],
-    },
+    where: { OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])] },
   });
-
   if (existed) {
     if (address && !existed.address) {
       await prisma.customer.update({ where: { id: existed.id }, data: { address } });
@@ -143,12 +131,7 @@ async function findOrCreateCustomer(reqCust: any) {
   } catch (e: any) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       const again = await prisma.customer.findFirst({
-        where: {
-          OR: [
-            ...(phone ? [{ phone }] : []),
-            ...(email ? [{ email }] : []),
-          ],
-        },
+        where: { OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])] },
         select: { id: true, name: true },
       });
       if (again) return { id: again.id, name: again.name };
@@ -169,7 +152,7 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     let docDate = toDateThaiAware(body.docDate);
-    docDate = normalizeChristianYear(docDate); // บังคับ ค.ศ.
+    docDate = normalizeChristianYear(docDate);
 
     const channel: string | null = body.channel ?? null;
 
@@ -185,7 +168,7 @@ export async function POST(req: Request) {
     const present = await prisma.product.findMany({ where: { code: { in: codes } } });
     const pmap = new Map(present.map((p) => [p.code, p]));
 
-    // auto-create product ที่ยังไม่มี
+    // auto-create product ถ้าไม่พบ
     for (const code of codes) {
       if (!pmap.has(code)) {
         const p = await prisma.product.create({
@@ -206,12 +189,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // === คำนวณยอด: รองรับ taxMode ===
-    const taxMode: "INCLUSIVE" | "EXCLUSIVE" =
-      (typeof body.taxMode === "string" && body.taxMode.toUpperCase() === "EXCLUSIVE")
-        ? "EXCLUSIVE"
-        : "INCLUSIVE";
-
+    // คำนวณยอด
     let subtotal = new D(0);
     const linePayload = items.map((it) => {
       const p = pmap.get(it.code)!;
@@ -231,19 +209,8 @@ export async function POST(req: Request) {
       };
     });
 
-    let vat: Prisma.Decimal;
-    let grand: Prisma.Decimal;
-
-    if (taxMode === "EXCLUSIVE") {
-      // ราคาที่ป้อน "ยังไม่รวมภาษี"
-      vat = subtotal.mul(0.07);
-      grand = subtotal.plus(vat);
-    } else {
-      // ราคาที่ป้อน "รวมภาษีแล้ว"
-      vat = subtotal.mul(7).div(107);
-      grand = subtotal;
-    }
-
+    const vat = subtotal.mul(0.07);
+    const grand = subtotal.plus(vat);
     const totalCogs = linePayload.reduce((a, x) => a.plus(x.cogs), new D(0));
     const gross = grand.minus(totalCogs);
 
@@ -348,7 +315,7 @@ export async function GET(req: Request) {
     const statusParam = (searchParams.get("status") || "ALL").toUpperCase();
 
     const page = Math.max(1, Number(searchParams.get("page") || 1));
-    const pageSizeRaw = Number(searchParams.get("pageSize") || 20);
+    const pageSizeRaw = Number(searchParams.get("pageSize") || 10); // ← default 10
     const pageSize = Math.min(Math.max(5, pageSizeRaw), 100);
 
     const baseWhere: any = {};
@@ -376,7 +343,7 @@ export async function GET(req: Request) {
 
     const totalCount = await prisma.sale.count({ where });
 
-    // ❗ ใช้ select อย่างเดียว (ไม่มี include)
+    // ใช้ select อย่างเดียว
     const sales = await prisma.sale.findMany({
       where,
       orderBy: { date: "desc" },
@@ -385,7 +352,7 @@ export async function GET(req: Request) {
       select: {
         id: true,
         docNo: true,
-        docDate: true, // UI ใช้แสดง dd/MM/yyyy (ค.ศ.)
+        docDate: true,
         date: true,
         customer: true,
         channel: true,
@@ -401,11 +368,7 @@ export async function GET(req: Request) {
 
     const allForSummary = await prisma.sale.findMany({
       where,
-      select: {
-        total: true,
-        totalCost: true,
-        items: { select: { cogs: true } },
-      },
+      select: { total: true, totalCost: true, items: { select: { cogs: true } } },
     });
 
     const summary = allForSummary.reduce(
@@ -415,7 +378,6 @@ export async function GET(req: Request) {
           s.totalCost != null
             ? new D(s.totalCost)
             : s.items.reduce((t, i) => t.plus(i.cogs), new D(0));
-
         acc.count += 1;
         acc.total = r2(new D(acc.total).plus(total));
         acc.cogs = r2(new D(acc.cogs).plus(cogs));

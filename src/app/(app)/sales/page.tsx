@@ -8,7 +8,6 @@ export const dynamic = "force-dynamic";
 type Sale = {
   id: string;
   docNo: string;
-  docDate?: string | Date; // ← ใช้ค่านี้เป็นหลัก
   date: string | Date;
   customer: string | null;
   channel: string | null;
@@ -79,7 +78,8 @@ function SalesContent() {
 
   const tab = (sp.get("status") || "ALL").toUpperCase();
   const page = Math.max(1, Number(sp.get("page") || 1));
-  const pageSize = Math.min(Math.max(5, Number(sp.get("pageSize") || 20)), 100);
+  // ← ค่า default = 10 ต่อหน้า
+  const pageSize = Math.min(Math.max(5, Number(sp.get("pageSize") || 10)), 100);
 
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -139,16 +139,6 @@ function SalesContent() {
   const start = Math.max(1, curPage - pageWindow);
   const end = Math.min(totalPages, curPage + pageWindow);
   const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
-
-  // helper: แปลงวันที่เป็น dd/MM/yyyy (ปี ค.ศ. ตามฐานข้อมูล)
-  const fmtThaiDDMMYYYY = (x: string | Date | undefined) => {
-    if (!x) return "-";
-    const d = new Date(x);
-    const dd = String(d.getDate()).padStart(2, "0");
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const yyyy = d.getFullYear(); // ใช้ ค.ศ.
-    return `${dd}/${mm}/${yyyy}`;
-  };
 
   return (
     <div className="space-y-6">
@@ -230,7 +220,7 @@ function SalesContent() {
 
             {sales.map((s) => (
               <tr key={s.id} className="border-t">
-                <td className="py-2 px-4">{fmtThaiDDMMYYYY(s.docDate ?? s.date)}</td>
+                <td className="py-2 px-4">{new Date(s.date).toLocaleDateString("th-TH")}</td>
                 <td className="py-2 px-4">{s.docNo}</td>
                 <td className="py-2 px-4">{s.customer || "-"}</td>
                 <td className="py-2 px-4">{s.channel || "-"}</td>
