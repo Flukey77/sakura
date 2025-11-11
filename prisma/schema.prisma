@@ -41,7 +41,6 @@ model User {
   sales     Sale[]
 }
 
-/** ลูกค้า (CRM เบา ๆ) */
 model Customer {
   id        String    @id @default(cuid())
   name      String
@@ -62,11 +61,17 @@ model Product {
   cost         Decimal  @default(0) @db.Decimal(18, 2)
   price        Decimal  @default(0) @db.Decimal(18, 2)
   stock        Int      @default(0)
+
+  /// ค่าขั้นต่ำของสต็อกที่ต้องการ ถ้าต่ำกว่านี้ให้เตือน
   safetyStock  Int      @default(0)
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   items        SaleItem[]
+
+  @@index([name])
+  @@index([stock])
 }
 
 model Sale {
@@ -75,7 +80,7 @@ model Sale {
   docDate       DateTime
   date          DateTime       @default(now())
 
-  // เก็บชื่อเดิมไว้เป็นสตริง (รองรับข้อมูลเก่า และใช้เป็น fallback ได้)
+  // เก็บค่าเดิมเป็นสตริงเพื่อรองรับข้อมูลเก่า
   customer      String?
   channel       String?
 
@@ -87,7 +92,7 @@ model Sale {
   createdBy     String
   user          User           @relation(fields: [createdBy], references: [id])
 
-  // ความสัมพันธ์กับ Customer (อาจเว้นว่างสำหรับเรคอร์ดเก่า)
+  // ความสัมพันธ์กับลูกค้า (อาจว่างสำหรับเรคอร์ดเก่า)
   customerId    String?
   customerRef   Customer?      @relation(fields: [customerId], references: [id])
 
@@ -121,7 +126,6 @@ model SaleItem {
   @@index([productId])
 }
 
-/** ค่าโฆษณารายวัน */
 model AdSpendDaily {
   id           Int        @id @default(autoincrement())
   date         DateTime   @db.Date

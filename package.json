@@ -10,7 +10,7 @@
     "dev": "next dev",
     "clean": "rimraf .next out",
     "build": "prisma generate && next build",
-    "render-build": "prisma generate && next build",
+    "render-build": "prisma migrate deploy && prisma generate && next build",
     "start": "prisma migrate deploy && next start",
     "postinstall": "prisma generate",
     "backfill:customers:dry": "cross-env DRY_RUN=1 tsx scripts/backfill-customers.ts",
