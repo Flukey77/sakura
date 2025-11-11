@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
@@ -47,7 +47,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       data.role = r;
     }
     if (typeof name === "string") data.name = name || null;
-    if (typeof password === "string" && password.trim()) data.password = await bcrypt.hash(password, 10);
+    if (typeof password === "string" && password.trim()) {
+      data.password = await bcrypt.hash(password, 10);
+    }
 
     if (!Object.keys(data).length) {
       return NextResponse.json({ error: "No changes" }, { status: 400 });
