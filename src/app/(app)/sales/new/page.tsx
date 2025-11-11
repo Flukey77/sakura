@@ -1,292 +1,271 @@
+// src/app/(app)/sales/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-type Item = { code: string; name: string; qty: number; price: number; discount?: number };
-type Avail = { code: string; name: string | null; stock: number; safetyStock: number };
+export const dynamic = "force-dynamic";
 
-const to2 = (n: any) => {
-  const x = Number(n || 0);
-  return Math.round(x * 100) / 100;
+type Sale = {
+  id: string;
+  docNo: string;
+  date: string | Date;
+  customer: string | null;
+  channel: string | null;
+  total: number;
+  status: "NEW" | "PENDING" | "CONFIRMED" | "CANCELLED" | string;
+  user?: { id: string; username: string; name: string | null };
 };
 
-const todayYMD = () => {
-  // ✅ บังคับรูปแบบ YYYY-MM-DD (ค.ศ.) สำหรับ <input type="date">
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${dd}`;
+type ApiRes = {
+  ok: boolean;
+  summary: { count: number; total: number; cogs: number; gross: number };
+  counters: Record<"ALL" | "NEW" | "PENDING" | "CONFIRMED" | "CANCELLED", number>;
+  sales: (Sale & { items?: any[] })[];
+  pagination?: { page: number; pageSize: number; totalCount: number; totalPages: number };
+  message?: string;
 };
 
-export default function NewSalePage() {
-  const router = useRouter();
+const TH_STATUS: Record<string, { label: string; cls: string }> = {
+  NEW: { label: "รอโอน", cls: "bg-amber-100 text-amber-700" },
+  PENDING: { label: "รอชำระ", cls: "bg-orange-100 text-orange-700" },
+  CONFIRMED: { label: "ยืนยันแล้ว", cls: "bg-emerald-100 text-emerald-700" },
+  CANCELLED: { label: "ยกเลิก", cls: "bg-slate-200 text-slate-700" },
+};
 
-  const [saving, setSaving] = useState(false);
-  const [items, setItems] = useState<Item[]>([
-    { code: "", name: "", qty: 1, price: 0, discount: 0 },
-  ]);
+function Pill({ status }: { status: string }) {
+  const m = TH_STATUS[status] ?? { label: status, cls: "bg-slate-100 text-slate-700" };
+  return <span className={`px-2 py-0.5 rounded-full text-xs ${m.cls}`}>{m.label}</span>;
+}
 
-  // ข้อมูล stock/safety จาก API
-  const [availability, setAvailability] = useState<Record<string, Avail>>({});
-  const [validatingStock, setValidatingStock] = useState(false);
+const fmtBaht = (n: number) =>
+  (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  function updateItem(i: number, patch: Partial<Item>) {
-    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
-  }
-  function addRow() {
-    setItems((prev) => [...prev, { code: "", name: "", qty: 1, price: 0, discount: 0 }]);
-  }
-  function removeRow(i: number) {
-    setItems((prev) => prev.filter((_, idx) => idx !== i));
-  }
+const TABS = [
+  { key: "ALL",       label: "ทั้งหมด" },
+  { key: "NEW",       label: "รอโอน" },
+  { key: "PENDING",   label: "รอชำระ" },
+  { key: "CONFIRMED", label: "ยืนยันแล้ว" },
+  { key: "CANCELLED", label: "ยกเลิก" },
+] as const;
 
-  // รวมเงินฝั่ง UI
-  const totalBeforeVat = useMemo(
-    () =>
-      items.reduce(
-        (s, it) =>
-          s +
-          (Number(it.qty) || 0) * (Number(it.price) || 0) -
-          (Number(it.discount) || 0),
-        0
-      ),
-    [items]
+function PageBtn({
+  active,
+  disabled,
+  children,
+  onClick,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  children: React.ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      className={`min-w-9 px-3 py-1.5 rounded-xl border ${
+        active ? "bg-slate-900 text-white border-slate-900" : "bg-white"
+      } disabled:opacity-50`}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
-  const vat = useMemo(() => to2(totalBeforeVat * 0.07), [totalBeforeVat]);
-  const grand = useMemo(() => to2(totalBeforeVat + vat), [totalBeforeVat, vat]);
+}
 
-  // ตรวจสต๊อกเรียลไทม์ (debounce 300ms)
-  useEffect(() => {
-    const timer = setTimeout(async () => {
-      const codes = Array.from(
-        new Set(items.map((x) => x.code.trim()).filter(Boolean))
-      );
-      if (!codes.length) {
-        setAvailability({});
-        return;
-      }
-      setValidatingStock(true);
-      try {
-        const res = await fetch(
-          `/api/products/availability?codes=${encodeURIComponent(codes.join(","))}`,
-          { cache: "no-store" }
-        );
-        const arr = (await res.json()) as Avail[];
-        const map: Record<string, Avail> = {};
-        for (const a of arr) map[a.code] = a;
-        setAvailability(map);
-      } catch {
-        // เงียบ ๆ
-      } finally {
-        setValidatingStock(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [items]);
+function SalesContent() {
+  const router = useRouter();
+  const sp = useSearchParams();
 
-  const stockIssues = useMemo(() => {
-    const insufficient: { idx: number; code: string; need: number; have: number }[] = [];
-    const belowSafety: { idx: number; code: string; stock: number; safety: number }[] = [];
+  const tab = (sp.get("status") || "ALL").toUpperCase();
+  const page = Math.max(1, Number(sp.get("page") || 1));
+  const pageSize = Math.min(Math.max(5, Number(sp.get("pageSize") || 20)), 100);
 
-    items.forEach((it, idx) => {
-      const code = it.code.trim();
-      if (!code || (it.qty || 0) <= 0) return;
-      const info = availability[code];
-      if (!info) return;
-      if ((info.stock ?? 0) - (it.qty || 0) < 0) {
-        insufficient.push({
-          idx,
-          code,
-          need: it.qty || 0,
-          have: info.stock ?? 0,
-        });
-      }
-      if ((info.stock ?? 0) < (info.safetyStock ?? 0)) {
-        belowSafety.push({
-          idx,
-          code,
-          stock: info.stock ?? 0,
-          safety: info.safetyStock ?? 0,
-        });
-      }
-    });
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [data, setData] = useState<ApiRes | null>(null);
 
-    return { insufficient, belowSafety };
-  }, [items, availability]);
-
-  const blockSubmit = stockIssues.insufficient.length > 0;
-
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
-    if (blockSubmit) {
-      const msg = stockIssues.insufficient
-        .map((r) => `• ${r.code}: ต้องการ ${r.need} แต่คงเหลือ ${r.have}`)
-        .join("\n");
-      alert(`สต๊อกไม่พอสำหรับรายการต่อไปนี้:\n${msg}`);
-      return;
-    }
-
-    setSaving(true);
-
-    const f = new FormData(e.currentTarget);
-    const rawItems = items
-      .filter((it) => it.code.trim() && Number(it.qty) > 0)
-      .map((it) => ({
-        code: it.code.trim(),
-        name: (it.name || it.code).trim(),
-        qty: Number(it.qty || 0),
-        price: to2(it.price),
-        discount: to2(it.discount || 0),
-      }));
-
-    if (!rawItems.length) {
-      alert("กรุณาเพิ่มรายการสินค้าอย่างน้อย 1 แถว");
-      setSaving(false);
-      return;
-    }
-
-    const payload = {
-      docNo: String(f.get("docNo") || "").trim() || undefined,
-      // ✅ ส่งรูปแบบ YYYY-MM-DD (ค.ศ.) เสมอ
-      docDate: String(f.get("docDate") || todayYMD()),
-      channel: String(f.get("channel") || "") || null,
-      customer: {
-        name: String(f.get("cusName") || "").trim(),
-        phone: String(f.get("cusPhone") || "").trim(),
-        email: String(f.get("cusEmail") || "").trim(),
-        address: String(f.get("cusAddr") || "").trim(),
-      },
-      items: rawItems,
-    };
-
+  const load = async () => {
+    setLoading(true);
+    setErrorMsg(null);
     try {
-      const res = await fetch("/api/sales", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const j = await res.json().catch(() => ({} as any));
-      if (!res.ok) throw new Error(j?.message || "บันทึกไม่สำเร็จ");
-
-      alert(`บันทึกสำเร็จ\nเลขเอกสาร: ${j?.docNo ?? "-"}`);
-      router.push("/sales");
-    } catch (err: any) {
-      console.error(err);
-      alert(err?.message || "บันทึกไม่สำเร็จ");
+      const url = `/api/sales?status=${tab}&page=${page}&pageSize=${pageSize}`;
+      const res = await fetch(url, { cache: "no-store" });
+      const j = (await res.json()) as ApiRes;
+      if (!res.ok || j.ok === false) throw new Error(j?.message || "โหลดข้อมูลล้มเหลว");
+      setData(j);
+    } catch (e: any) {
+      setErrorMsg(e?.message || "โหลดข้อมูลล้มเหลว");
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
-  }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, page, pageSize]);
+
+  const goto = (p: number) => {
+    const params = new URLSearchParams(sp.toString());
+    params.set("status", tab);
+    params.set("page", String(Math.max(1, p)));
+    params.set("pageSize", String(pageSize));
+    router.push(`/sales?${params.toString()}`);
+  };
+
+  const changeStatus = async (id: string, status: string) => {
+    if (!confirm(`ยืนยันเปลี่ยนสถานะเป็น "${TH_STATUS[status]?.label || status}" ?`)) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/sales/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.message || "อัปเดตไม่สำเร็จ");
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "อัปเดตไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sales = useMemo(() => data?.sales ?? [], [data]);
+  const totalPages = data?.pagination?.totalPages ?? 1;
+  const curPage = data?.pagination?.page ?? page;
+
+  const pageWindow = 2;
+  const start = Math.max(1, curPage - pageWindow);
+  const end = Math.min(totalPages, curPage + pageWindow);
+  const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
 
   return (
     <div className="space-y-6">
-      {/* ปุ่มบันทึก/ยกเลิก */}
-      <div className="flex items-center justify-end gap-3">
-        <button
-          type="button"
-          className="rounded-xl border px-4 py-2"
-          onClick={() => router.push("/sales")}
-          disabled={saving}
-        >
-          ยกเลิก
-        </button>
-        <button
-          form="saleForm"
-          type="submit"
-          className="rounded-xl bg-blue-600 text-white px-4 py-2 disabled:opacity-60"
-          disabled={saving || validatingStock || blockSubmit}
-          title={blockSubmit ? "มีรายการสต๊อกไม่พอ" : undefined}
-        >
-          {saving ? "กำลังบันทึก..." : "บันทึก"}
+      <div className="grid lg:grid-cols-3 gap-4">
+        <div className="rounded-2xl border bg-white"><div className="p-5">
+          <div className="text-slate-500">จำนวนออเดอร์</div>
+          <div className="text-3xl font-semibold mt-1">{data?.summary.count ?? 0}</div>
+        </div></div>
+        <div className="rounded-2xl border bg-white"><div className="p-5">
+          <div className="text-slate-500">มูลค่าทั้งหมด (รายได้)</div>
+          <div className="text-3xl font-semibold mt-1">฿{fmtBaht(data?.summary.total ?? 0)}</div>
+        </div></div>
+        <div className="rounded-2xl border bg-white">
+          <div className="p-5 grid grid-cols-2 gap-2">
+            <div><div className="text-slate-500">ต้นทุนขาย</div>
+              <div className="text-xl font-semibold mt-1">฿{fmtBaht(data?.summary.cogs ?? 0)}</div>
+            </div>
+            <div><div className="text-slate-500">กำไรขั้นต้น</div>
+              <div className="text-xl font-semibold mt-1">฿{fmtBaht(data?.summary.gross ?? 0)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => {
+              const params = new URLSearchParams(sp.toString());
+              params.set("status", t.key);
+              params.set("page", "1");
+              params.set("pageSize", String(pageSize));
+              router.push(`/sales?${params.toString()}`);
+            }}
+            className={`px-3 py-1.5 rounded-xl border ${
+              tab === t.key ? "bg-slate-900 text-white border-slate-900" : "bg-white"
+            }`}
+            disabled={loading}
+          >
+            {t.label}
+            {typeof data?.counters?.[t.key] === "number" && (
+              <span className="ml-2 text-slate-500">{data?.counters?.[t.key]}</span>
+            )}
+          </button>
+        ))}
+        <div className="flex-1" />
+        <button onClick={() => router.push("/sales/new")} className="rounded-xl bg-blue-600 text-white px-4 py-2">สร้าง</button>
+        <button onClick={load} className="rounded-xl border px-4 py-2 disabled:opacity-60" disabled={loading}>
+          {loading ? "กำลังโหลด…" : "รีเฟรช"}
         </button>
       </div>
 
-      {/* แจ้งเตือนสต๊อก */}
-      {blockSubmit && (
+      {errorMsg && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
-          พบ {stockIssues.insufficient.length} แถวที่สต๊อกไม่พอ — แก้ไขก่อนบันทึก
-        </div>
-      )}
-      {!blockSubmit && stockIssues.belowSafety.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-700">
-          มี {stockIssues.belowSafety.length} รายการที่ต่ำกว่า Safety Stock (ยังบันทึกได้)
+          {errorMsg} <button onClick={load} className="btn btn-secondary ml-3">ลองใหม่</button>
         </div>
       )}
 
-      {/* ฟอร์มหลัก */}
-      <form id="saleForm" onSubmit={onSubmit} className="space-y-6">
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* ซ้าย: ข้อมูลเอกสาร */}
-          <div className="rounded-2xl border bg-white">
-            <div className="p-5 border-b">
-              <h2 className="font-semibold text-lg">ข้อมูล</h2>
-            </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="text-sm">รายการ</label>
-                <input name="docNo" className="input mt-1 w-full" placeholder="(ปล่อยว่างเพื่อให้ระบบออกเลข)" />
-              </div>
-              <div>
-                <label className="text-sm">วันที่</label>
-                <input name="docDate" type="date" className="input mt-1 w-full" defaultValue={todayYMD()} />
-              </div>
-              <div>
-                <label className="text-sm">อ้างอิง</label>
-                <input name="ref" className="input mt-1 w-full" placeholder="PO, ใบจอง ฯลฯ" />
-              </div>
-              <div>
-                <label className="text-sm">ช่องทางการขาย</label>
-                <select name="channel" className="input mt-1 w-full" defaultValue="">
-                  <option value="" disabled>กรุณาเลือก</option>
-                  <option value="TikTok">TikTok</option>
-                  <option value="Facebook">Facebook</option>
-                  <option value="หน้าร้าน">หน้าร้าน</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-sm">ประเภทภาษี (เฉพาะแสดงผล)</label>
-                <select name="taxType" className="input mt-1 w-full" defaultValue="ไม่มีภาษี">
-                  <option>ไม่มีภาษี</option>
-                  <option>แยกภาษี</option>
-                  <option>รวมภาษี</option>
-                </select>
-              </div>
-            </div>
-          </div>
+      <div className="rounded-2xl border bg-white overflow-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-slate-500 border-b">
+              <th className="py-3 px-4 w-[120px]">วันที่</th>
+              <th className="py-3 px-4">เลขเอกสาร</th>
+              <th className="py-3 px-4">ลูกค้า</th>
+              <th className="py-3 px-4 w-[160px]">ช่องทาง</th>
+              <th className="py-3 px-4 w-[160px]">มูลค่า</th>
+              <th className="py-3 px-4 w-[130px]">สถานะ</th>
+              <th className="py-3 px-4 w-[220px] text-right">จัดการ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(!errorMsg && data && data.sales.length === 0) && (
+              <tr><td colSpan={7} className="py-10 text-center text-slate-500">
+                ไม่มีข้อมูลในช่วงเวลานี้ <button onClick={load} className="btn btn-secondary ml-3">รีเฟรช</button>
+              </td></tr>
+            )}
 
-          {/* ขวา: ลูกค้า */}
-          <div className="rounded-2xl border bg-white">
-            <div className="p-5 border-b">
-              <h2 className="font-semibold text-lg">ลูกค้า</h2>
-            </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="text-sm">ชื่อลูกค้า</label>
-                <input name="cusName" className="input mt-1 w-full" placeholder="พิมพ์ชื่อ/รหัส" required />
-              </div>
-              <div>
-                <label className="text-sm">เบอร์โทรศัพท์ลูกค้า</label>
-                <input name="cusPhone" className="input mt-1 w-full" />
-              </div>
-              <div>
-                <label className="text-sm">อีเมลลูกค้า</label>
-                <input name="cusEmail" type="email" className="input mt-1 w-full" />
-              </div>
-              <div>
-                <label className="text-sm">ที่อยู่ลูกค้า</label>
-                <textarea name="cusAddr" className="input mt-1 w-full h-28" />
-              </div>
-            </div>
-          </div>
-        </div>
+            {data?.sales.map((s) => (
+              <tr key={s.id} className="border-t">
+                <td className="py-2 px-4">{new Date(s.date).toLocaleDateString("th-TH")}</td>
+                <td className="py-2 px-4">{s.docNo}</td>
+                <td className="py-2 px-4">{s.customer || "-"}</td>
+                <td className="py-2 px-4">{s.channel || "-"}</td>
+                <td className="py-2 px-4">฿{fmtBaht(Number(s.total || 0))}</td>
+                <td className="py-2 px-4"><Pill status={(s.status || "NEW").toUpperCase()} /></td>
+                <td className="py-2 px-4">
+                  <div className="flex gap-2 justify-end">
+                    <button className="rounded-lg border px-3 py-1 hover:bg-slate-50" onClick={() => changeStatus(s.id, "PENDING")} disabled={busy}>ทำเป็นรอชำระ</button>
+                    <button className="rounded-lg border px-3 py-1 hover:bg-slate-50" onClick={() => changeStatus(s.id, "CONFIRMED")} disabled={busy}>ทำเป็นยืนยันแล้ว</button>
+                    <button className="rounded-lg border px-3 py-1 hover:bg-red-50 text-red-600" onClick={() => changeStatus(s.id, "CANCELLED")} disabled={busy}>ยกเลิก</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
 
-        {/* ตารางรายการสินค้า — (เหมือนเดิมทั้งหมด) */}
-        {/* ... (คงโค้ดเดิมของคุณจากส่วนนี้ลงไปจนจบไฟล์) ... */}
-        {/* เพื่อความสั้น ผมตัดส่วน “ตารางสินค้า + สรุปรวม” ออก แต่ในโปรเจกต์ให้คงเหมือนเดิมนะครับ */}
-      </form>
+            {loading && Array.from({ length: 5 }).map((_, i) => (
+              <tr key={`skeleton-${i}`} className="border-t animate-pulse">
+                <td className="py-3 px-4"><div className="h-3 w-16 bg-slate-200 rounded" /></td>
+                <td className="py-3 px-4"><div className="h-3 w-28 bg-slate-200 rounded" /></td>
+                <td className="py-3 px-4"><div className="h-3 w-24 bg-slate-200 rounded" /></td>
+                <td className="py-3 px-4"><div className="h-3 w-20 bg-slate-200 rounded" /></td>
+                <td className="py-3 px-4"><div className="h-3 w-24 bg-slate-200 rounded" /></td>
+                <td className="py-3 px-4"><div className="h-5 w-16 bg-slate-200 rounded-full" /></td>
+                <td className="py-3 px-4"><div className="h-8 w-40 bg-slate-200 rounded-lg ml-auto" /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex items-center justify-center gap-2">
+        <PageBtn disabled={curPage <= 1} onClick={() => goto(curPage - 1)}>«</PageBtn>
+        {start > 1 && (<><PageBtn onClick={() => goto(1)}>1</PageBtn>{start > 2 && <span className="px-1 text-slate-400">…</span>}</>)}
+        {pages.map((p) => (<PageBtn key={p} active={p === curPage} onClick={() => goto(p)}>{p}</PageBtn>))}
+        {end < totalPages && (<>{end < totalPages - 1 && <span className="px-1 text-slate-400">…</span>}<PageBtn onClick={() => goto(totalPages)}>{totalPages}</PageBtn></>)}
+        <PageBtn disabled={curPage >= totalPages} onClick={() => goto(curPage + 1)}>»</PageBtn>
+      </div>
     </div>
+  );
+}
+
+export default function SalesPage() {
+  return (
+    <Suspense fallback={<div className="text-slate-400">กำลังโหลดรายการขาย…</div>}>
+      <SalesContent />
+    </Suspense>
   );
 }
