@@ -1,3 +1,4 @@
+// src/app/(app)/products/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -99,15 +100,16 @@ export default function ProductsPage() {
     }
   }
 
-  async function saveSafety(p: Product) {
-    const n = Number(p.safetyStock ?? 0);
+  // ←— ใหม่: บันทึก Safety โดยรับค่าปัจจุบันจาก input โดยตรง
+  async function saveSafetyValue(id: number, value: number) {
+    const n = Number(value);
     if (!Number.isInteger(n) || n < 0) {
       alert("Safety Stock ต้องเป็นจำนวนเต็มไม่ติดลบ");
       return;
     }
-    setSavingSafetyId(p.id);
+    setSavingSafetyId(id);
     try {
-      const res = await fetch(`/api/products/${p.id}/safety`, {
+      const res = await fetch(`/api/products/${id}/safety`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ safetyStock: n }),
@@ -121,6 +123,11 @@ export default function ProductsPage() {
     } finally {
       setSavingSafetyId(null);
     }
+  }
+
+  // ยังเผื่อไว้ใช้จากปุ่ม “บันทึก” ที่อ่านค่าจาก state (หลัง onChange แล้ว)
+  async function saveSafety(p: Product) {
+    return saveSafetyValue(p.id, Number(p.safetyStock ?? 0));
   }
 
   function updateRow<K extends keyof Product>(id: number, key: K, val: Product[K]) {
@@ -249,7 +256,15 @@ export default function ProductsPage() {
                           onChange={(e) =>
                             updateRow(p.id, "safetyStock", Number(e.target.value))
                           }
-                          onKeyDown={(e) => e.key === "Enter" && saveSafety(p)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              const current = Number(
+                                (e.currentTarget as HTMLInputElement).value
+                              );
+                              saveSafetyValue(p.id, current); // ← ใช้ค่าจากอินพุตทันที
+                            }
+                          }}
                         />
                       </td>
                       <td className="py-2">
@@ -277,7 +292,7 @@ export default function ProductsPage() {
             </tbody>
           </table>
 
-          {/* ตัวแบ่งหน้า (รูปที่ 1) */}
+          {/* ตัวแบ่งหน้า */}
           <div className="mt-4 flex items-center justify-center gap-2">
             <button
               className="rounded-xl border px-3 py-1.5 disabled:opacity-50"
