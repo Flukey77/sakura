@@ -78,8 +78,11 @@ function SalesContent() {
 
   const tab = (sp.get("status") || "ALL").toUpperCase();
   const page = Math.max(1, Number(sp.get("page") || 1));
-  // ← ค่า default = 10 ต่อหน้า
   const pageSize = Math.min(Math.max(5, Number(sp.get("pageSize") || 10)), 100);
+  const q = (sp.get("q") || "").trim();
+
+  const [search, setSearch] = useState(q);
+  useEffect(() => setSearch(q), [q]);
 
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -90,7 +93,13 @@ function SalesContent() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const url = `/api/sales?status=${tab}&page=${page}&pageSize=${pageSize}`;
+      const params = new URLSearchParams({
+        status: tab,
+        page: String(page),
+        pageSize: String(pageSize),
+      });
+      if (q) params.set("q", q);
+      const url = `/api/sales?${params.toString()}`;
       const res = await fetch(url, { cache: "no-store" });
       const j = (await res.json()) as ApiRes;
       if (!res.ok || j.ok === false) throw new Error(j?.message || "โหลดข้อมูลล้มเหลว");
@@ -102,15 +111,30 @@ function SalesContent() {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, page, pageSize]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, page, pageSize, q]);
 
-  const goto = (p: number) => {
+  const setParamAndPush = (patch: Record<string, string>) => {
     const params = new URLSearchParams(sp.toString());
+    Object.entries(patch).forEach(([k, v]) => params.set(k, v));
+    router.push(`/sales?${params.toString()}`);
+  };
+
+  const doSearch = () => {
+    setParamAndPush({ status: tab, page: "1", pageSize: String(pageSize), q: search.trim() });
+  };
+
+  const clearSearch = () => {
+    setSearch("");
+    const params = new URLSearchParams(sp.toString());
+    params.delete("q");
+    params.set("page", "1");
     params.set("status", tab);
-    params.set("page", String(Math.max(1, p)));
     params.set("pageSize", String(pageSize));
     router.push(`/sales?${params.toString()}`);
   };
+
+  const goto = (p: number) =>
+    setParamAndPush({ status: tab, page: String(Math.max(1, p)), pageSize: String(pageSize), ...(q ? { q } : {}) });
 
   const changeStatus = async (id: string, status: string) => {
     if (!confirm(`ยืนยันเปลี่ยนสถานะเป็น "${TH_STATUS[status]?.label || status}" ?`)) return;
@@ -163,17 +187,14 @@ function SalesContent() {
         </div>
       </div>
 
+      {/* แถบสถานะ + กล่องค้นหา */}
       <div className="flex flex-wrap items-center gap-2">
         {TABS.map((t) => (
           <button
             key={t.key}
-            onClick={() => {
-              const params = new URLSearchParams(sp.toString());
-              params.set("status", t.key);
-              params.set("page", "1");
-              params.set("pageSize", String(pageSize));
-              router.push(`/sales?${params.toString()}`);
-            }}
+            onClick={() =>
+              setParamAndPush({ status: t.key, page: "1", pageSize: String(pageSize), ...(q ? { q } : {}) })
+            }
             className={`px-3 py-1.5 rounded-xl border ${
               tab === t.key ? "bg-slate-900 text-white border-slate-900" : "bg-white"
             }`}
@@ -186,11 +207,30 @@ function SalesContent() {
           </button>
         ))}
         <div className="flex-1" />
-        <button onClick={() => router.push("/sales/new")} className="rounded-xl bg-blue-600 text-white px-4 py-2">สร้าง</button>
-        <button onClick={load} className="rounded-xl border px-4 py-2 disabled:opacity-60" disabled={loading}>
-          {loading ? "กำลังโหลด…" : "รีเฟรช"}
-        </button>
+        <div className="flex items-center gap-2">
+          <input
+            className="input w-[240px]"
+            placeholder="ค้นหา เลขเอกสาร/ชื่อลูกค้า"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && doSearch()}
+          />
+          {q ? (
+            <button className="btn" onClick={clearSearch} disabled={loading}>ล้าง</button>
+          ) : null}
+          <button className="btn" onClick={doSearch} disabled={loading}>{loading ? "ค้นหา…" : "ค้นหา"}</button>
+          <button onClick={() => router.push("/sales/new")} className="rounded-xl bg-blue-600 text-white px-4 py-2">สร้าง</button>
+          <button onClick={load} className="rounded-xl border px-4 py-2 disabled:opacity-60" disabled={loading}>
+            {loading ? "กำลังโหลด…" : "รีเฟรช"}
+          </button>
+        </div>
       </div>
+
+      {q && (
+        <div className="text-sm text-slate-500">
+          ผลการค้นหา: <span className="font-medium">"{q}"</span>
+        </div>
+      )}
 
       {errorMsg && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">

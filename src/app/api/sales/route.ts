@@ -1,4 +1,5 @@
-﻿import { NextResponse } from "next/server";
+﻿// src/app/api/sales/route.ts
+import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
@@ -9,12 +10,13 @@ const D = Prisma.Decimal;
 const r2 = (x: number | string | Prisma.Decimal) =>
   Number(new D(x ?? 0).toDecimalPlaces(2));
 
+/** today ตามโซนเครื่อง (ตัดเวลาออก) */
 function todayLocal() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-/** YYYY-MM-DD หรือ dd/mm/yyyy (รองรับ พ.ศ.) -> Date */
+/** YYYY-MM-DD/ISO หรือ dd/mm/yyyy (รองรับปี พ.ศ.) -> Date (fallback today) */
 function toDateThaiAware(x?: string): Date {
   if (!x) return todayLocal();
   const d = new Date(x);
@@ -25,7 +27,7 @@ function toDateThaiAware(x?: string): Date {
     const dd = parseInt(m[1], 10);
     const mm = parseInt(m[2], 10) - 1;
     let yy = parseInt(m[3], 10);
-    if (yy > 2500) yy -= 543;
+    if (yy > 2500) yy -= 543; // พ.ศ. -> ค.ศ.
     return new Date(yy, mm, dd);
   }
   return todayLocal();
@@ -41,6 +43,7 @@ function normalizeChristianYear(d: Date) {
   return d;
 }
 
+/** กรองรายการ + แปลงตัวเลข */
 function normalizeItems(raw: any[]) {
   return (raw || [])
     .filter(
@@ -67,6 +70,7 @@ function buildDocNo(d: Date, seq: number) {
   return `SO-${yyyy}${mm}${dd}${s}`;
 }
 
+/** ออกเลขเอกสารตามวันที่ที่ระบุ (กันชนซ้ำในวันเดียวกัน) */
 async function generateDocNo(forDate: Date) {
   const yyyy = forDate.getFullYear();
   const mm = String(forDate.getMonth() + 1).padStart(2, "0");
@@ -86,7 +90,7 @@ async function generateDocNo(forDate: Date) {
   return buildDocNo(forDate, nextSeq);
 }
 
-/** หา/สร้างลูกค้า (ใช้ phone/email เป็นหลัก) */
+/** หา/สร้างลูกค้า: ใช้ phone/email เท่านั้นในการหาเดิม (ไม่ใช้ name) */
 async function findOrCreateCustomer(reqCust: any) {
   const name = (reqCust?.name ? String(reqCust.name) : "").trim();
   const phone = (reqCust?.phone ? String(reqCust.phone) : "").trim() || undefined;
@@ -95,7 +99,9 @@ async function findOrCreateCustomer(reqCust: any) {
     (reqCust?.address ? String(reqCust.address) : "").trim() || undefined;
 
   if (reqCust?.id) {
-    const byId = await prisma.customer.findUnique({ where: { id: String(reqCust.id) } });
+    const byId = await prisma.customer.findUnique({
+      where: { id: String(reqCust.id) },
+    });
     if (byId) {
       if (address && !byId.address) {
         await prisma.customer.update({ where: { id: byId.id }, data: { address } });
@@ -105,8 +111,14 @@ async function findOrCreateCustomer(reqCust: any) {
   }
 
   const existed = await prisma.customer.findFirst({
-    where: { OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])] },
+    where: {
+      OR: [
+        ...(phone ? [{ phone }] : []),
+        ...(email ? [{ email }] : []),
+      ],
+    },
   });
+
   if (existed) {
     if (address && !existed.address) {
       await prisma.customer.update({ where: { id: existed.id }, data: { address } });
@@ -131,7 +143,12 @@ async function findOrCreateCustomer(reqCust: any) {
   } catch (e: any) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       const again = await prisma.customer.findFirst({
-        where: { OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])] },
+        where: {
+          OR: [
+            ...(phone ? [{ phone }] : []),
+            ...(email ? [{ email }] : []),
+          ],
+        },
         select: { id: true, name: true },
       });
       if (again) return { id: again.id, name: again.name };
@@ -152,7 +169,7 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     let docDate = toDateThaiAware(body.docDate);
-    docDate = normalizeChristianYear(docDate);
+    docDate = normalizeChristianYear(docDate); // บังคับ ค.ศ.
 
     const channel: string | null = body.channel ?? null;
 
@@ -168,7 +185,7 @@ export async function POST(req: Request) {
     const present = await prisma.product.findMany({ where: { code: { in: codes } } });
     const pmap = new Map(present.map((p) => [p.code, p]));
 
-    // auto-create product ถ้าไม่พบ
+    // auto-create product ที่ยังไม่มี
     for (const code of codes) {
       if (!pmap.has(code)) {
         const p = await prisma.product.create({
@@ -305,7 +322,7 @@ export async function POST(req: Request) {
   }
 }
 
-/** ------------------------ GET: List Sales + Pagination ------------------------ */
+/** ------------------------ GET: List + Pagination + Search + Summary Rules ------------------------ */
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -313,20 +330,40 @@ export async function GET(req: Request) {
     const from = searchParams.get("from");
     const to = searchParams.get("to");
     const statusParam = (searchParams.get("status") || "ALL").toUpperCase();
+    const q = (searchParams.get("q") || "").trim();
 
     const page = Math.max(1, Number(searchParams.get("page") || 1));
-    const pageSizeRaw = Number(searchParams.get("pageSize") || 10); // ← default 10
+    const pageSizeRaw = Number(searchParams.get("pageSize") || 10);
     const pageSize = Math.min(Math.max(5, pageSizeRaw), 100);
 
-    const baseWhere: any = {};
-    if (from) baseWhere.date = { gte: toDateThaiAware(from) };
+    // --------- สร้าง baseWhere แบบ type-safe ----------
+    const baseWhere: Prisma.SaleWhereInput = {};
+
+    // จัดการช่วงวันที่ด้วย DateTimeFilter แยกก่อน
+    let dateFilter: Prisma.DateTimeFilter | undefined = undefined;
+    if (from) {
+      dateFilter = { ...(dateFilter ?? {}), gte: toDateThaiAware(from) };
+    }
     if (to) {
       const t = toDateThaiAware(to);
       t.setHours(23, 59, 59, 999);
-      baseWhere.date = { ...(baseWhere.date || {}), lte: t };
+      dateFilter = { ...(dateFilter ?? {}), lte: t };
+    }
+    if (dateFilter) {
+      baseWhere.date = dateFilter;
     }
 
-    // นับแท็บสถานะ
+    // คำค้นหา (เลขเอกสาร/ชื่อลูกค้า)
+    if (q) {
+      const mode = Prisma.QueryMode.insensitive;
+      baseWhere.OR = [
+        { docNo: { contains: q, mode } },
+        { customer: { contains: q, mode } },
+      ];
+    }
+    // -----------------------------------------------
+
+    // นับแท็บสถานะ (ตาม baseWhere)
     const countersSeed = await prisma.sale.findMany({
       where: baseWhere,
       select: { status: true },
@@ -338,12 +375,13 @@ export async function GET(req: Request) {
       if (k in counters) counters[k] += 1;
     }
 
-    const where: any = { ...baseWhere };
+    // เงื่อนไขของตาราง
+    const where: Prisma.SaleWhereInput = { ...baseWhere };
     if (statusParam !== "ALL") where.status = statusParam;
 
     const totalCount = await prisma.sale.count({ where });
 
-    // ใช้ select อย่างเดียว
+    // รายการในตาราง
     const sales = await prisma.sale.findMany({
       where,
       orderBy: { date: "desc" },
@@ -366,25 +404,31 @@ export async function GET(req: Request) {
       },
     });
 
-    const allForSummary = await prisma.sale.findMany({
-      where,
+    // สรุปด้านบน
+    let summaryWhere: Prisma.SaleWhereInput = { ...where };
+    if (statusParam === "ALL") {
+      summaryWhere = { ...summaryWhere, NOT: { status: "CANCELLED" as any } };
+    }
+
+    const summaryRows = await prisma.sale.findMany({
+      where: summaryWhere,
       select: { total: true, totalCost: true, items: { select: { cogs: true } } },
     });
+    const summaryCount = await prisma.sale.count({ where: summaryWhere });
 
-    const summary = allForSummary.reduce(
+    const summary = summaryRows.reduce(
       (acc, s) => {
         const total = new D(s.total || 0);
         const cogs =
           s.totalCost != null
             ? new D(s.totalCost)
             : s.items.reduce((t, i) => t.plus(i.cogs), new D(0));
-        acc.count += 1;
         acc.total = r2(new D(acc.total).plus(total));
         acc.cogs = r2(new D(acc.cogs).plus(cogs));
         acc.gross = r2(new D(acc.total).minus(acc.cogs));
         return acc;
       },
-      { count: 0, total: 0, cogs: 0, gross: 0 }
+      { count: summaryCount, total: 0, cogs: 0, gross: 0 }
     );
 
     return NextResponse.json({
