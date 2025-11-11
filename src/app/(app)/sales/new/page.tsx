@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Item = { code: string; name: string; qty: number; price: number; discount?: number };
+type Avail = { code: string; name: string | null; stock: number; safetyStock: number };
 
 const to2 = (n: any) => {
   const x = Number(n || 0);
@@ -18,23 +19,109 @@ export default function NewSalePage() {
     { code: "", name: "", qty: 1, price: 0, discount: 0 },
   ]);
 
+  // ข้อมูล stock/safety จาก API
+  const [availability, setAvailability] = useState<Record<string, Avail>>({});
+  const [validatingStock, setValidatingStock] = useState(false);
+
   function updateItem(i: number, patch: Partial<Item>) {
-    setItems(prev => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
   }
   function addRow() {
-    setItems(prev => [...prev, { code: "", name: "", qty: 1, price: 0, discount: 0 }]);
+    setItems((prev) => [...prev, { code: "", name: "", qty: 1, price: 0, discount: 0 }]);
+  }
+  function removeRow(i: number) {
+    setItems((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   // รวมเงินฝั่ง UI (แสดงผลเท่านั้น)
-  const totalBeforeVat = items.reduce(
-    (s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0) - (Number(it.discount) || 0),
-    0
+  const totalBeforeVat = useMemo(
+    () =>
+      items.reduce(
+        (s, it) =>
+          s +
+          (Number(it.qty) || 0) * (Number(it.price) || 0) -
+          (Number(it.discount) || 0),
+        0
+      ),
+    [items]
   );
-  const vat = to2(totalBeforeVat * 0.07);
-  const grand = to2(totalBeforeVat + vat);
+  const vat = useMemo(() => to2(totalBeforeVat * 0.07), [totalBeforeVat]);
+  const grand = useMemo(() => to2(totalBeforeVat + vat), [totalBeforeVat, vat]);
+
+  // -------- ตรวจสต๊อกเรียลไทม์ (debounce 300ms) --------
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      const codes = Array.from(
+        new Set(items.map((x) => x.code.trim()).filter(Boolean))
+      );
+      if (!codes.length) {
+        setAvailability({});
+        return;
+      }
+      setValidatingStock(true);
+      try {
+        const res = await fetch(
+          `/api/products/availability?codes=${encodeURIComponent(codes.join(","))}`,
+          { cache: "no-store" }
+        );
+        const arr = (await res.json()) as Avail[];
+        const map: Record<string, Avail> = {};
+        for (const a of arr) map[a.code] = a;
+        setAvailability(map);
+      } catch {
+        // เงียบ ๆ
+      } finally {
+        setValidatingStock(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [items]);
+
+  // คำนวณรายการที่ “สต๊อกไม่พอ” และ “ต่ำกว่า safety”
+  const stockIssues = useMemo(() => {
+    const insufficient: { idx: number; code: string; need: number; have: number }[] = [];
+    const belowSafety: { idx: number; code: string; stock: number; safety: number }[] = [];
+
+    items.forEach((it, idx) => {
+      const code = it.code.trim();
+      if (!code || (it.qty || 0) <= 0) return;
+      const info = availability[code];
+      if (!info) return;
+      if ((info.stock ?? 0) - (it.qty || 0) < 0) {
+        insufficient.push({
+          idx,
+          code,
+          need: it.qty || 0,
+          have: info.stock ?? 0,
+        });
+      }
+      if ((info.stock ?? 0) < (info.safetyStock ?? 0)) {
+        belowSafety.push({
+          idx,
+          code,
+          stock: info.stock ?? 0,
+          safety: info.safetyStock ?? 0,
+        });
+      }
+    });
+
+    return { insufficient, belowSafety };
+  }, [items, availability]);
+
+  const blockSubmit = stockIssues.insufficient.length > 0;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
+    // กันเผลอกดตอนสต๊อกไม่พอ
+    if (blockSubmit) {
+      const msg = stockIssues.insufficient
+        .map((r) => `• ${r.code}: ต้องการ ${r.need} แต่คงเหลือ ${r.have}`)
+        .join("\n");
+      alert(`สต๊อกไม่พอสำหรับรายการต่อไปนี้:\n${msg}`);
+      return;
+    }
+
     setSaving(true);
 
     const f = new FormData(e.currentTarget);
@@ -55,8 +142,8 @@ export default function NewSalePage() {
     }
 
     const payload = {
-      docNo: String(f.get("docNo") || "").trim(),
-      // ถ้า user ไม่ใส่วัน ให้ใช้เวลาปัจจุบัน
+      // ❌ ไม่บังคับเลขเอกสาร ปล่อยให้แบ็กเอนด์ออกเลข -> ลดปัญหาเลขชน
+      docNo: String(f.get("docNo") || "").trim() || undefined,
       docDate: String(f.get("docDate") || new Date().toISOString()),
       channel: String(f.get("channel") || "") || null,
       customer: {
@@ -65,7 +152,7 @@ export default function NewSalePage() {
         email: String(f.get("cusEmail") || ""),
         address: String(f.get("cusAddr") || ""),
       },
-      items: rawItems, // ← รูปแบบที่แบ็กเอนด์ต้องการ
+      items: rawItems,
     };
 
     try {
@@ -77,8 +164,8 @@ export default function NewSalePage() {
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok) throw new Error(j?.message || "บันทึกไม่สำเร็จ");
 
-      alert("บันทึกสำเร็จ");
-      router.push("/sales"); // กลับหน้ารายการ
+      alert(`บันทึกสำเร็จ\nเลขเอกสาร: ${j?.docNo ?? "-"}`);
+      router.push("/sales");
     } catch (err: any) {
       console.error(err);
       alert(err?.message || "บันทึกไม่สำเร็จ");
@@ -89,7 +176,7 @@ export default function NewSalePage() {
 
   return (
     <div className="space-y-6">
-      {/* ปุ่มอยู่นอกฟอร์ม ใช้ form="saleForm" */}
+      {/* ปุ่มบันทึก/ยกเลิก */}
       <div className="flex items-center justify-end gap-3">
         <button
           type="button"
@@ -103,11 +190,25 @@ export default function NewSalePage() {
           form="saleForm"
           type="submit"
           className="rounded-xl bg-blue-600 text-white px-4 py-2 disabled:opacity-60"
-          disabled={saving}
+          disabled={saving || validatingStock || blockSubmit}
+          title={blockSubmit ? "มีรายการสต๊อกไม่พอ" : undefined}
         >
           {saving ? "กำลังบันทึก..." : "บันทึก"}
         </button>
       </div>
+
+      {/* แบนเนอร์แจ้งเตือนสต๊อก */}
+      {blockSubmit && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+          พบ {stockIssues.insufficient.length} แถวที่สต๊อกไม่พอ — แก้ไขก่อนบันทึก
+        </div>
+      )}
+      {!blockSubmit &&
+        stockIssues.belowSafety.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-700">
+            มี {stockIssues.belowSafety.length} รายการที่ต่ำกว่า Safety Stock (ยังบันทึกได้)
+          </div>
+        )}
 
       {/* ฟอร์มหลัก */}
       <form id="saleForm" onSubmit={onSubmit} className="space-y-6">
@@ -120,7 +221,8 @@ export default function NewSalePage() {
             <div className="p-5 space-y-4">
               <div>
                 <label className="text-sm">รายการ</label>
-                <input name="docNo" className="input mt-1 w-full" defaultValue="SO-202510001" required />
+                {/* ไม่ required และไม่ใส่ default ปล่อยให้แบ็กเอนด์ออกเลข */}
+                <input name="docNo" className="input mt-1 w-full" placeholder="(ปล่อยว่างเพื่อให้ระบบออกเลข)" />
               </div>
               <div>
                 <label className="text-sm">วันที่</label>
@@ -133,7 +235,9 @@ export default function NewSalePage() {
               <div>
                 <label className="text-sm">ช่องทางการขาย</label>
                 <select name="channel" className="input mt-1 w-full" defaultValue="">
-                  <option value="" disabled>กรุณาเลือก</option>
+                  <option value="" disabled>
+                    กรุณาเลือก
+                  </option>
                   <option value="TikTok">TikTok</option>
                   <option value="Facebook">Facebook</option>
                   <option value="หน้าร้าน">หน้าร้าน</option>
@@ -158,7 +262,12 @@ export default function NewSalePage() {
             <div className="p-5 space-y-4">
               <div>
                 <label className="text-sm">ชื่อลูกค้า</label>
-                <input name="cusName" className="input mt-1 w-full" placeholder="พิมพ์ชื่อ/รหัส" required />
+                <input
+                  name="cusName"
+                  className="input mt-1 w-full"
+                  placeholder="พิมพ์ชื่อ/รหัส"
+                  required
+                />
               </div>
               <div>
                 <label className="text-sm">เบอร์โทรศัพท์ลูกค้า</label>
@@ -180,10 +289,15 @@ export default function NewSalePage() {
         <div className="rounded-2xl border bg-white">
           <div className="p-5 border-b flex items-center justify-between">
             <h2 className="font-semibold text-lg">รายการสินค้า</h2>
-            <button type="button" onClick={addRow} className="rounded-xl border px-3 py-1.5 hover:bg-slate-50">
+            <button
+              type="button"
+              onClick={addRow}
+              className="rounded-xl border px-3 py-1.5 hover:bg-slate-50"
+            >
               + เพิ่มแถว
             </button>
           </div>
+
           <div className="p-2 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -194,20 +308,34 @@ export default function NewSalePage() {
                   <th className="py-3 px-4 w-[160px]">ราคา/หน่วย</th>
                   <th className="py-3 px-4 w-[140px]">ส่วนลด</th>
                   <th className="py-3 px-4 w-[140px] text-right">จำนวนเงิน</th>
+                  <th className="py-3 px-4 w-[60px]"></th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((it, i) => {
                   const line =
-                    (Number(it.qty) || 0) * (Number(it.price) || 0) - (Number(it.discount) || 0);
+                    (Number(it.qty) || 0) * (Number(it.price) || 0) -
+                    (Number(it.discount) || 0);
+                  const code = it.code.trim();
+                  const info = code ? availability[code] : undefined;
+                  const notEnough =
+                    !!info && (info.stock ?? 0) - (Number(it.qty) || 0) < 0;
+                  const underSafety =
+                    !!info && (info.stock ?? 0) < (info.safetyStock ?? 0);
+
                   return (
                     <tr key={i} className="border-t">
                       <td className="py-2 px-4">
                         <input
-                          className="input w-full"
+                          className={`input w-full ${notEnough ? "border-red-300 bg-red-50" : ""}`}
                           value={it.code}
                           onChange={(e) => updateItem(i, { code: e.target.value })}
                         />
+                        {info && (
+                          <div className="mt-1 text-xs text-slate-500">
+                            คงเหลือ: {info.stock} / Safety: {info.safetyStock}
+                          </div>
+                        )}
                       </td>
                       <td className="py-2 px-4">
                         <input
@@ -219,8 +347,9 @@ export default function NewSalePage() {
                       <td className="py-2 px-4">
                         <input
                           type="number"
-                          className="input w-full text-right"
+                          className={`input w-full text-right ${notEnough ? "border-red-300 bg-red-50" : ""}`}
                           value={it.qty}
+                          min={0}
                           onChange={(e) => updateItem(i, { qty: Number(e.target.value) })}
                         />
                       </td>
@@ -241,7 +370,29 @@ export default function NewSalePage() {
                         />
                       </td>
                       <td className="py-2 px-4 text-right">
-                        {to2(line).toLocaleString("th-TH", { minimumFractionDigits: 2 })}
+                        {to2(line).toLocaleString("th-TH", {
+                          minimumFractionDigits: 2,
+                        })}
+                        {notEnough && (
+                          <div className="text-xs text-red-600 mt-1">
+                            สต๊อกไม่พอ (เหลือ {info?.stock ?? 0})
+                          </div>
+                        )}
+                        {!notEnough && underSafety && (
+                          <div className="text-xs text-amber-600 mt-1">
+                            ต่ำกว่า Safety Stock
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        <button
+                          type="button"
+                          className="rounded-lg border px-2 py-1 text-slate-600 hover:bg-slate-50"
+                          onClick={() => removeRow(i)}
+                          title="ลบแถว"
+                        >
+                          ลบ
+                        </button>
                       </td>
                     </tr>
                   );
@@ -256,11 +407,17 @@ export default function NewSalePage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>รวมก่อนภาษี</div>
-                <div>{to2(totalBeforeVat).toLocaleString("th-TH", { minimumFractionDigits: 2 })}</div>
+                <div>
+                  {to2(totalBeforeVat).toLocaleString("th-TH", {
+                    minimumFractionDigits: 2,
+                  })}
+                </div>
               </div>
               <div className="flex items-center justify-between">
                 <div>ภาษีมูลค่าเพิ่ม (7%)</div>
-                <div>{vat.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</div>
+                <div>
+                  {vat.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
+                </div>
               </div>
               <div className="mt-3 rounded-xl bg-slate-100 p-4 flex items-center justify-between font-semibold">
                 <div>รวมสุทธิ</div>
@@ -275,4 +432,3 @@ export default function NewSalePage() {
     </div>
   );
 }
-

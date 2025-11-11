@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** PATCH /api/products/:id – อัปเดต cost/price/stock (ADMIN เท่านั้น) */
+/** PATCH /api/products/:id – อัปเดต cost/price/stock/safetyStock (ADMIN เท่านั้น) */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -20,7 +20,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   const body = await req.json().catch(() => ({} as any));
-  const data: any = {};
+  const data: Record<string, any> = {};
 
   if (body.cost !== undefined) {
     const n = Number(body.cost);
@@ -37,6 +37,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (!Number.isInteger(n) || n < 0) return NextResponse.json({ error: "Invalid stock" }, { status: 400 });
     data.stock = n;
   }
+  if (body.safetyStock !== undefined) {
+    const n = Number(body.safetyStock);
+    if (!Number.isInteger(n) || n < 0) return NextResponse.json({ error: "Invalid safetyStock" }, { status: 400 });
+    data.safetyStock = n;
+  }
 
   if (!Object.keys(data).length) {
     return NextResponse.json({ error: "No changes" }, { status: 400 });
@@ -45,13 +50,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const updated = await prisma.product.update({
     where: { id: idNum },
     data,
-    select: { id: true, code: true, name: true, cost: true, price: true, stock: true },
+    select: { id: true, code: true, name: true, cost: true, price: true, stock: true, safetyStock: true },
   });
 
   return NextResponse.json({ ok: true, product: updated });
 }
 
-/** DELETE (ของคุณเดิม) */
+/** DELETE /api/products/:id – ลบสินค้า (ADMIN เท่านั้น) */
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

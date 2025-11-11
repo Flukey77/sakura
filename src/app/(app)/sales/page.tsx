@@ -4,7 +4,6 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-// ปิด prerender สำหรับเพจนี้ (กันปัญหา useSearchParams บน prerender)
 export const dynamic = "force-dynamic";
 
 type Sale = {
@@ -23,6 +22,7 @@ type ApiRes = {
   summary: { count: number; total: number; cogs: number; gross: number };
   counters: Record<"ALL" | "NEW" | "PENDING" | "CONFIRMED" | "CANCELLED", number>;
   sales: (Sale & { items?: any[] })[];
+  pagination?: { page: number; pageSize: number; totalCount: number; totalPages: number };
   message?: string;
 };
 
@@ -49,25 +49,49 @@ const TABS = [
   { key: "CANCELLED", label: "ยกเลิก" },
 ] as const;
 
+function PageBtn({
+  active,
+  disabled,
+  children,
+  onClick,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  children: React.ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      className={`min-w-9 px-3 py-1.5 rounded-xl border ${
+        active ? "bg-slate-900 text-white border-slate-900" : "bg-white"
+      } disabled:opacity-50`}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
 function SalesContent() {
   const router = useRouter();
   const sp = useSearchParams();
 
-  // อ่านค่าแท็บจาก query string
   const tab = (sp.get("status") || "ALL").toUpperCase();
+  const page = Math.max(1, Number(sp.get("page") || 1));
+  const pageSize = Math.min(Math.max(5, Number(sp.get("pageSize") || 20)), 100);
 
-  // สถานะหลัก
-  const [loading, setLoading] = useState(false); // โหลดรายการ
-  const [busy, setBusy] = useState(false);       // เปลี่ยนสถานะบิล
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [data, setData] = useState<ApiRes | null>(null);
 
-  // ดึงข้อมูลตามแท็บ
   const load = async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await fetch(`/api/sales?status=${tab}`, { cache: "no-store" });
+      const url = `/api/sales?status=${tab}&page=${page}&pageSize=${pageSize}`;
+      const res = await fetch(url, { cache: "no-store" });
       const j = (await res.json()) as ApiRes;
       if (!res.ok || j.ok === false) {
         throw new Error(j?.message || "โหลดข้อมูลล้มเหลว");
@@ -83,9 +107,16 @@ function SalesContent() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, page, pageSize]);
 
-  // เปลี่ยนสถานะออเดอร์
+  const goto = (p: number) => {
+    const params = new URLSearchParams(sp.toString());
+    params.set("status", tab);
+    params.set("page", String(Math.max(1, p)));
+    params.set("pageSize", String(pageSize));
+    router.push(`/sales?${params.toString()}`);
+  };
+
   const changeStatus = async (id: string, status: string) => {
     if (!confirm(`ยืนยันเปลี่ยนสถานะเป็น "${TH_STATUS[status]?.label || status}" ?`)) return;
     setBusy(true);
@@ -106,6 +137,15 @@ function SalesContent() {
   };
 
   const sales = useMemo(() => data?.sales ?? [], [data]);
+
+  const totalPages = data?.pagination?.totalPages ?? 1;
+  const curPage = data?.pagination?.page ?? page;
+
+  // ทำ window ของหมายเลขหน้า (เช่น แสดงรอบ ๆ หน้า current 2 ข้าง)
+  const pageWindow = 2;
+  const start = Math.max(1, curPage - pageWindow);
+  const end = Math.min(totalPages, curPage + pageWindow);
+  const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
 
   return (
     <div className="space-y-6">
@@ -144,7 +184,13 @@ function SalesContent() {
         {TABS.map((t) => (
           <button
             key={t.key}
-            onClick={() => router.push(`/sales?status=${t.key}`)}
+            onClick={() => {
+              const params = new URLSearchParams(sp.toString());
+              params.set("status", t.key);
+              params.set("page", "1"); // รีเซ็ตกลับหน้า 1 เมื่อเปลี่ยนแท็บ
+              params.set("pageSize", String(pageSize));
+              router.push(`/sales?${params.toString()}`);
+            }}
             className={`px-3 py-1.5 rounded-xl border ${
               tab === t.key ? "bg-slate-900 text-white border-slate-900" : "bg-white"
             }`}
@@ -197,69 +243,40 @@ function SalesContent() {
             </tr>
           </thead>
           <tbody>
-            {/* Loading state — โชว์ skeleton 5 แถว */}
             {loading &&
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={`skeleton-${i}`} className="border-t animate-pulse">
-                  <td className="py-3 px-4">
-                    <div className="h-3 w-16 bg-slate-200 rounded" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-3 w-28 bg-slate-200 rounded" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-3 w-24 bg-slate-200 rounded" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-3 w-20 bg-slate-200 rounded" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-3 w-24 bg-slate-200 rounded" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-5 w-16 bg-slate-200 rounded-full" />
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="h-8 w-40 bg-slate-200 rounded-lg ml-auto" />
-                  </td>
+                  <td className="py-3 px-4"><div className="h-3 w-16 bg-slate-200 rounded" /></td>
+                  <td className="py-3 px-4"><div className="h-3 w-28 bg-slate-200 rounded" /></td>
+                  <td className="py-3 px-4"><div className="h-3 w-24 bg-slate-200 rounded" /></td>
+                  <td className="py-3 px-4"><div className="h-3 w-20 bg-slate-200 rounded" /></td>
+                  <td className="py-3 px-4"><div className="h-3 w-24 bg-slate-200 rounded" /></td>
+                  <td className="py-3 px-4"><div className="h-5 w-16 bg-slate-200 rounded-full" /></td>
+                  <td className="py-3 px-4"><div className="h-8 w-40 bg-slate-200 rounded-lg ml-auto" /></td>
                 </tr>
               ))}
 
-            {/* Data rows */}
             {!loading &&
               sales.map((s) => (
                 <tr key={s.id} className="border-t">
-                  <td className="py-2 px-4">
-                    {new Date(s.date).toLocaleDateString("th-TH")}
-                  </td>
+                  <td className="py-2 px-4">{new Date(s.date).toLocaleDateString("th-TH")}</td>
                   <td className="py-2 px-4">{s.docNo}</td>
                   <td className="py-2 px-4">{s.customer || "-"}</td>
                   <td className="py-2 px-4">{s.channel || "-"}</td>
                   <td className="py-2 px-4">฿{fmtBaht(Number(s.total || 0))}</td>
-                  <td className="py-2 px-4">
-                    <Pill status={(s.status || "NEW").toUpperCase()} />
-                  </td>
+                  <td className="py-2 px-4"><Pill status={(s.status || "NEW").toUpperCase()} /></td>
                   <td className="py-2 px-4">
                     <div className="flex gap-2 justify-end">
-                      <button
-                        className="rounded-lg border px-3 py-1 hover:bg-slate-50"
-                        onClick={() => changeStatus(s.id, "PENDING")}
-                        disabled={busy}
-                      >
+                      <button className="rounded-lg border px-3 py-1 hover:bg-slate-50"
+                        onClick={() => changeStatus(s.id, "PENDING")} disabled={busy}>
                         ทำเป็นรอชำระ
                       </button>
-                      <button
-                        className="rounded-lg border px-3 py-1 hover:bg-slate-50"
-                        onClick={() => changeStatus(s.id, "CONFIRMED")}
-                        disabled={busy}
-                      >
+                      <button className="rounded-lg border px-3 py-1 hover:bg-slate-50"
+                        onClick={() => changeStatus(s.id, "CONFIRMED")} disabled={busy}>
                         ทำเป็นยืนยันแล้ว
                       </button>
-                      <button
-                        className="rounded-lg border px-3 py-1 hover:bg-red-50 text-red-600"
-                        onClick={() => changeStatus(s.id, "CANCELLED")}
-                        disabled={busy}
-                      >
+                      <button className="rounded-lg border px-3 py-1 hover:bg-red-50 text-red-600"
+                        onClick={() => changeStatus(s.id, "CANCELLED")} disabled={busy}>
                         ยกเลิก
                       </button>
                     </div>
@@ -267,19 +284,39 @@ function SalesContent() {
                 </tr>
               ))}
 
-            {/* Empty state */}
             {!loading && !errorMsg && sales.length === 0 && (
               <tr>
                 <td colSpan={7} className="py-10 text-center text-slate-500">
                   ไม่มีข้อมูลในช่วงเวลานี้
-                  <button onClick={load} className="btn btn-secondary ml-3">
-                    รีเฟรช
-                  </button>
+                  <button onClick={load} className="btn btn-secondary ml-3">รีเฟรช</button>
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Pagination bar */}
+      <div className="flex items-center justify-center gap-2">
+        <PageBtn disabled={curPage <= 1} onClick={() => goto(curPage - 1)}>«</PageBtn>
+        {start > 1 && (
+          <>
+            <PageBtn onClick={() => goto(1)}>1</PageBtn>
+            {start > 2 && <span className="px-1 text-slate-400">…</span>}
+          </>
+        )}
+        {pages.map((p) => (
+          <PageBtn key={p} active={p === curPage} onClick={() => goto(p)}>
+            {p}
+          </PageBtn>
+        ))}
+        {end < totalPages && (
+          <>
+            {end < totalPages - 1 && <span className="px-1 text-slate-400">…</span>}
+            <PageBtn onClick={() => goto(totalPages)}>{totalPages}</PageBtn>
+          </>
+        )}
+        <PageBtn disabled={curPage >= totalPages} onClick={() => goto(curPage + 1)}>»</PageBtn>
       </div>
     </div>
   );
