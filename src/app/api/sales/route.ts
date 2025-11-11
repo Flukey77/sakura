@@ -1,22 +1,32 @@
-// src/app/api/sales/route.ts
+﻿// src/app/api/sales/route.ts
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
-import { Decimal } from "@prisma/client/runtime/library";
+import { Prisma } from "@prisma/client";
 
-/** ปัดเป็นทศนิยม 2 ตำแหน่งแบบปลอดภัย */
-const r2 = (n: number | string | Decimal) =>
-  Number(new Decimal(n || 0).toDecimalPlaces(2));
+/** -------- Decimal helpers -------- */
+const D = Prisma.Decimal;
+const r2 = (x: number | string | Prisma.Decimal) =>
+  Number(new D(x ?? 0).toDecimalPlaces(2));
 
-/** YYYY-MM-DD หรือ ISO -> Date (fallback เป็น now) */
-function toDate(x?: string) {
+/** YYYY-MM-DD/ISO หรือ พ.ศ. -> Date (fallback now) */
+function toDateThaiAware(x?: string): Date {
   if (!x) return new Date();
   const d = new Date(x);
-  return isNaN(d.getTime()) ? new Date() : d;
+  if (!isNaN(d.getTime())) return d;
+  // เผื่อรับมารูปแบบ dd/MM/yyyy (ไทย) แบบเร็ว ๆ
+  const m = String(x).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    let [_, dd, mm, yyyy] = m;
+    let y = parseInt(yyyy, 10);
+    if (y > 2500) y -= 543; // แปลง พ.ศ. -> ค.ศ.
+    return new Date(y, parseInt(mm, 10) - 1, parseInt(dd, 10));
+  }
+  return new Date();
 }
 
-/** กรองแถวว่าง + แปลงตัวเลข */
+/** กรองรายการ + แปลงตัวเลข */
 function normalizeItems(raw: any[]) {
   return (raw || [])
     .filter(
@@ -34,6 +44,87 @@ function normalizeItems(raw: any[]) {
     }));
 }
 
+/** สร้างเลขเอกสาร SO-YYYYMMDDNNN */
+function buildDocNo(d: Date, seq: number) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const s = String(seq).padStart(3, "0");
+  return `SO-${yyyy}${mm}${dd}${s}`;
+}
+
+/** สร้าง/หาเลขเอกสารแบบกันชนกัน (retry ได้) */
+async function generateDocNo(now: Date) {
+  const prefix = `SO-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+    now.getDate()
+  ).padStart(2, "0")}`;
+
+  const last = await prisma.sale.findFirst({
+    where: { docNo: { startsWith: prefix } },
+    orderBy: { docNo: "desc" },
+    select: { docNo: true },
+  });
+
+  let nextSeq = 1;
+  if (last?.docNo) {
+    nextSeq = (parseInt(last.docNo.slice(-3), 10) || 0) + 1;
+  }
+  return buildDocNo(now, nextSeq);
+}
+
+/** หา/สร้างลูกค้าให้ปลอดภัยต่อ unique(phone/email) */
+async function findOrCreateCustomer(reqCust: any) {
+  const name = (reqCust?.name ? String(reqCust.name) : "").trim();
+  const phone = (reqCust?.phone ? String(reqCust.phone) : "").trim() || undefined;
+  const email = (reqCust?.email ? String(reqCust.email) : "").trim() || undefined;
+
+  // ถ้ามี id มาใช้เลย
+  if (reqCust?.id) {
+    const byId = await prisma.customer.findUnique({
+      where: { id: String(reqCust.id) },
+    });
+    if (byId) return { id: byId.id, name: byId.name };
+  }
+
+  // หาเดิมจาก phone/email/name
+  const existed = await prisma.customer.findFirst({
+    where: {
+      OR: [
+        ...(phone ? [{ phone }] : []),
+        ...(email ? [{ email }] : []),
+        ...(name ? [{ name }] : []),
+      ],
+    },
+  });
+  if (existed) return { id: existed.id, name: existed.name };
+
+  // ไม่มี -> สร้าง (กันชน P2002 แล้ว re-fetch)
+  if (!name && !phone && !email) return { id: null, name: null };
+
+  try {
+    const created = await prisma.customer.create({
+      data: { name: name || phone || email || "CUSTOMER", phone, email, tags: [] },
+      select: { id: true, name: true },
+    });
+    return { id: created.id, name: created.name };
+  } catch (e: any) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      const again = await prisma.customer.findFirst({
+        where: {
+          OR: [
+            ...(phone ? [{ phone }] : []),
+            ...(email ? [{ email }] : []),
+            ...(name ? [{ name }] : []),
+          ],
+        },
+        select: { id: true, name: true },
+      });
+      if (again) return { id: again.id, name: again.name };
+    }
+    throw e;
+  }
+}
+
 /** ------------------------ POST: Create Sale ------------------------ */
 export async function POST(req: Request) {
   try {
@@ -44,81 +135,36 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-
-    const docNo: string = String(body.docNo || "").trim();
-    const docDate: Date = toDate(body.docDate);
+    const docDate: Date = toDateThaiAware(body.docDate);
     const channel: string | null = body.channel ?? null;
 
-    // ---- ลูกค้า (หา/สร้าง แล้วส่งทั้ง customerId + customerName) ----
-    const reqCust = body.customer || {};
-    let customerId: string | null = null;
-    let customerName: string | null = null;
+    // ลูกค้า
+    const { id: customerId, name: customerName } = await findOrCreateCustomer(body.customer || {});
 
-    if (reqCust?.id) {
-      // หากส่ง id มาโดยตรง
-      const found = await prisma.customer.findUnique({ where: { id: String(reqCust.id) } });
-      if (found) {
-        customerId = found.id;
-        customerName = found.name;
-      }
-    }
-
-    if (!customerId) {
-      const name = String(reqCust.name || "").trim();
-      const phone = reqCust.phone ? String(reqCust.phone).trim() : undefined;
-      const email = reqCust.email ? String(reqCust.email).trim() : undefined;
-
-      if (name || phone || email) {
-        const found = await prisma.customer.findFirst({
-          where: {
-            OR: [
-              ...(phone ? [{ phone }] : []),
-              ...(email ? [{ email }] : []),
-              ...(name ? [{ name }] : []),
-            ],
-          },
-        });
-
-        if (found) {
-          customerId = found.id;
-          customerName = found.name;
-        } else if (name) {
-          const created = await prisma.customer.create({
-            data: { name, phone, email, tags: [] },
-          });
-          customerId = created.id;
-          customerName = created.name;
-        }
-      }
-    }
-
+    // รายการสินค้า
     const items = normalizeItems(body.items || []);
     if (!items.length) {
       return NextResponse.json({ ok: false, message: "ไม่มีรายการสินค้า" }, { status: 400 });
     }
 
-    // โหลดสินค้าในระบบ
+    // upsert สินค้าให้ครบ
     const codes = Array.from(new Set(items.map((x) => x.code)));
-    const exist = await prisma.product.findMany({ where: { code: { in: codes } } });
-    const pmap = new Map(exist.map((p) => [p.code, p]));
+    const present = await prisma.product.findMany({ where: { code: { in: codes } } });
+    const pmap = new Map(present.map((p) => [p.code, p]));
 
-    // ถ้ายังไม่มีให้สร้างใหม่ (ชื่อเริ่มต้นเป็น code)
-    const needCreate = codes.filter((c) => !pmap.has(c));
-    if (needCreate.length) {
-      const created = await prisma.$transaction(
-        needCreate.map((code) =>
-          prisma.product.create({
-            data: { code, name: code, cost: new Decimal(0), price: new Decimal(0), stock: 0 },
-          })
-        )
-      );
-      for (const p of created) pmap.set(p.code, p);
+    for (const code of codes) {
+      if (!pmap.has(code)) {
+        const p = await prisma.product.create({
+          data: { code, name: code, cost: new D(0), price: new D(0), stock: 0 },
+        });
+        pmap.set(code, p);
+      }
     }
 
     // กันสต๊อกติดลบ
     for (const it of items) {
       const p = pmap.get(it.code)!;
-      if (p.stock - it.qty < 0) {
+      if ((p.stock ?? 0) - it.qty < 0) {
         return NextResponse.json(
           { ok: false, message: `สต๊อกไม่พอสำหรับ ${it.code} (คงเหลือ ${p.stock}, ต้องการ ${it.qty})` },
           { status: 400 }
@@ -126,101 +172,124 @@ export async function POST(req: Request) {
       }
     }
 
-    // คำนวณยอดรวม + เตรียม payload บรรทัด + COGS
-    let totalBeforeVat = 0;
-
-    const itemPayload = items.map((it) => {
-      const lineAmount = r2(new Decimal(it.qty).mul(it.price).minus(it.discount));
-      totalBeforeVat = r2(new Decimal(totalBeforeVat).plus(lineAmount));
-
+    // คำนวณยอด
+    let subtotal = new D(0);
+    const linePayload = items.map((it) => {
       const p = pmap.get(it.code)!;
-      const costEach = new Decimal(p.cost);
+      const amount = new D(it.qty).mul(it.price).minus(it.discount);
+      subtotal = subtotal.plus(amount);
+      const costEach = new D(p.cost ?? 0);
       const cogs = costEach.mul(it.qty);
-
       return {
-        code: it.code,
-        name: it.name || p.name,
+        productId: p.id,
         qty: it.qty,
-        price: new Decimal(it.price),
-        discount: new Decimal(it.discount),
-        amount: new Decimal(lineAmount),
+        price: new D(it.price),
+        discount: new D(it.discount),
+        amount,
         costEach,
         cogs,
-        productId: p.id,
+        name: it.name || p.name,
       };
     });
 
-    const vat = r2(new Decimal(totalBeforeVat).mul(0.07));
-    const grand = r2(new Decimal(totalBeforeVat).plus(vat));
+    const vat = subtotal.mul(0.07);
+    const grand = subtotal.plus(vat);
+    const totalCogs = linePayload.reduce((a, x) => a.plus(x.cogs), new D(0));
+    const gross = grand.minus(totalCogs);
 
-    const totalCogs = itemPayload.reduce(
-      (sum, x) => Number(new Decimal(sum).plus(x.cogs)),
-      0
-    );
+    // ออกเลขเอกสาร (ถ้าฝั่ง UI ส่ง docNo มาก็ยัง “พยายามใช้” ได้ แต่จะกันชนซ้ำ)
+    const wantDocNo = typeof body.docNo === "string" ? body.docNo.trim() : "";
+    let finalDocNo = wantDocNo || (await generateDocNo(docDate));
 
-    // ธุรกรรม: สร้าง Sale + Items และหักสต๊อก
-    const sale = await prisma.$transaction(async (tx) => {
-      const created = await tx.sale.create({
-        data: {
-          docNo,
-          docDate,
-          date: docDate,
-          channel,
-          // เก็บทั้งชื่อ (string) และ customerId (FK) ถ้ามี
-          customer: customerName || null,
-          customerId: customerId || null,
+    // ทำงานในทรานแซคชัน + กันชน docNo ซ้ำ (retry <= 5)
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const created = await prisma.$transaction(async (tx) => {
+          // ถ้าอยากใช้หมายเลขที่ผู้ใช้ส่งมา ให้ลอง create ตรง ๆ ก่อน
+          if (attempt === 0 && wantDocNo) {
+            // nothing
+          } else if (!wantDocNo) {
+            // ออกเลขใหม่รอบนี้ (กรณีรอบก่อนชน)
+            finalDocNo = await generateDocNo(docDate);
+          }
 
-          total: new Decimal(grand),
-          totalCost: new Decimal(totalCogs),
-          status: "NEW",
+          const sale = await tx.sale.create({
+            data: {
+              docNo: finalDocNo,
+              docDate,
+              date: docDate,
+              channel,
+              customer: customerName || null,
+              customerId: customerId || null,
+              total: grand,
+              totalCost: totalCogs,
+              status: "NEW",
+              createdBy: userId,
+              items: {
+                create: linePayload.map((x) => ({
+                  productId: x.productId,
+                  qty: x.qty,
+                  price: x.price,
+                  discount: x.discount,
+                  amount: x.amount,
+                  costEach: x.costEach,
+                  cogs: x.cogs,
+                })),
+              },
+            },
+            select: { id: true, docNo: true },
+          });
 
-          createdBy: userId,
-          items: {
-            create: itemPayload.map((x) => ({
-              productId: x.productId,
-              qty: x.qty,
-              price: x.price,
-              discount: x.discount,
-              amount: x.amount,
-              costEach: x.costEach,
-              cogs: x.cogs,
-            })),
+          // หักสต๊อก
+          await Promise.all(
+            linePayload.map((x) =>
+              tx.product.update({
+                where: { id: x.productId },
+                data: { stock: { decrement: x.qty } },
+              })
+            )
+          );
+
+          return sale;
+        });
+
+        return NextResponse.json({
+          ok: true,
+          saleId: created.id,
+          docNo: created.docNo,
+          totals: {
+            subtotal: r2(subtotal),
+            vat: r2(vat),
+            grand: r2(grand),
+            totalCogs: r2(totalCogs),
+            gross: r2(gross),
           },
-        },
-        include: { items: true },
-      });
+        });
+      } catch (e: any) {
+        // docNo ซ้ำ -> ลองใหม่
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === "P2002" &&
+          // @ts-ignore
+          (e.meta?.target as any)?.includes?.("docNo")
+        ) {
+          continue;
+        }
+        throw e;
+      }
+    }
 
-      // หักสต๊อก
-      await Promise.all(
-        itemPayload.map((x) =>
-          tx.product.update({
-            where: { id: x.productId },
-            data: { stock: { decrement: x.qty } },
-          })
-        )
-      );
-
-      return created;
-    });
-
-    return NextResponse.json({
-      ok: true,
-      saleId: sale.id,
-      totals: {
-        totalBeforeVat,
-        vat,
-        grand,
-        totalCogs,
-        gross: r2(new Decimal(grand).minus(totalCogs)),
-      },
-    });
+    return NextResponse.json(
+      { ok: false, message: "ออกเลขเอกสารไม่สำเร็จ (ชนหลายครั้ง)" },
+      { status: 409 }
+    );
   } catch (err: any) {
     console.error("POST /api/sales error:", err);
     return NextResponse.json({ ok: false, message: err?.message ?? "Server error" }, { status: 500 });
   }
 }
 
-/** ------------------------ GET: List Sales ------------------------ */
+/** ------------------------ GET: List Sales (เดิม แต่ขัดเกลาเล็กน้อย) ------------------------ */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const from = searchParams.get("from");
@@ -229,7 +298,7 @@ export async function GET(req: Request) {
 
   const baseWhere: any = {};
   if (from) baseWhere.date = { gte: new Date(from) };
-  if (to) baseWhere.date = { ...(baseWhere.date || {}), lte: new Date(to + "T23:59:59.999Z") };
+  if (to) baseWhere.date = { ...(baseWhere.date || {}), lte: new Date(`${to}T23:59:59.999Z`) };
 
   const countersSeed = await prisma.sale.findMany({ where: baseWhere, select: { status: true } });
   const counters = { ALL: 0, NEW: 0, PENDING: 0, CONFIRMED: 0, CANCELLED: 0 };
@@ -248,22 +317,21 @@ export async function GET(req: Request) {
     include: {
       items: true,
       user: { select: { id: true, username: true, name: true } },
-      customerRef: { select: { id: true, name: true, phone: true, email: true } }, // << ดึงลูกค้ามาด้วย
+      customerRef: { select: { id: true, name: true, phone: true, email: true } },
     },
   });
 
   const summary = sales.reduce(
     (acc, s) => {
-      const total = new Decimal(s.total || 0);
+      const total = new D(s.total || 0);
       const cogs =
         s.totalCost != null
-          ? new Decimal(s.totalCost)
-          : s.items.reduce((t, i) => t.plus(i.cogs), new Decimal(0));
-
+          ? new D(s.totalCost)
+          : s.items.reduce((t, i) => t.plus(i.cogs), new D(0));
       acc.count += 1;
-      acc.total = r2(new Decimal(acc.total).plus(total));
-      acc.cogs = r2(new Decimal(acc.cogs).plus(cogs));
-      acc.gross = r2(new Decimal(acc.total).minus(acc.cogs));
+      acc.total = r2(new D(acc.total).plus(total));
+      acc.cogs = r2(new D(acc.cogs).plus(cogs));
+      acc.gross = r2(new D(acc.total).minus(acc.cogs));
       return acc;
     },
     { count: 0, total: 0, cogs: 0, gross: 0 }
@@ -271,4 +339,3 @@ export async function GET(req: Request) {
 
   return NextResponse.json({ ok: true, summary, counters, sales });
 }
-
