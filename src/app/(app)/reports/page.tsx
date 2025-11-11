@@ -77,7 +77,7 @@ function ReportsInner() {
     router.replace(`/reports?${params.toString()}`, { scroll: false });
   };
 
-  // ช่วงวันที่
+  // วันที่
   const { from, to } = useMemo(() => {
     const now = new Date();
     const toStr = now.toISOString().slice(0, 10);
@@ -96,7 +96,7 @@ function ReportsInner() {
     return { from: d.toISOString().slice(0, 10), to: toStr };
   }, [period]);
 
-  // ดึงยอดขาย
+  // ขาย
   const {
     data: salesData,
     error: salesErr,
@@ -108,7 +108,7 @@ function ReportsInner() {
     { revalidateOnFocus: false }
   );
 
-  // ดึงค่าโฆษณา
+  // ค่าโฆษณา
   const {
     data: adsData,
     error: adsErr,
@@ -123,7 +123,7 @@ function ReportsInner() {
   const sales = salesData?.sales ?? [];
   const byChannel = adsData?.byChannel ?? {};
 
-  // KPIs รวม + แยกช่องทาง (ROAS = รายได้/ค่าโฆษณา)
+  // KPI รวม + ช่องทาง
   const kpi = useMemo(() => {
     const total = Number(salesData?.summary?.total || 0);
     const gross = Number(salesData?.summary?.gross || 0);
@@ -143,7 +143,6 @@ function ReportsInner() {
     const ttAd = Number(byChannel.TIKTOK || 0);
 
     const netProfit = gross - adTotal;
-
     const fbROAS = fbAd > 0 ? fbRevenue / fbAd : 0;
     const ttROAS = ttAd > 0 ? ttRevenue / ttAd : 0;
 
@@ -162,7 +161,7 @@ function ReportsInner() {
     };
   }, [salesData?.summary, sales, adsData?.totalCost, byChannel]);
 
-  // ข้อมูลกราฟ
+  // กราฟ
   const chartData = useMemo(() => {
     const bucket = new Map<string, number>();
     for (const s of sales) {
@@ -179,10 +178,10 @@ function ReportsInner() {
 
   return (
     <div className="space-y-6">
-      {/* ตัวกรอง + รีเฟรช */}
+      {/* ตัวกรอง */}
       <div className="flex items-center gap-3 justify-end">
         <select
-          className="rounded-xl border px-3 py-2 bg-white w-[180px]"
+          className="rounded-xl border px-3 py-2 bg-white w-[200px]"
           value={period}
           onChange={(e) => changePeriod(e.target.value as Period)}
           aria-label="ช่วงเวลา"
@@ -204,23 +203,23 @@ function ReportsInner() {
         </button>
       </div>
 
-      {/* แถว KPI หลัก */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
-        <KpiCard title="ยอดขายรวม" value={`${fmt(kpi.total)} ฿`} icon={<BarChart2 className="h-5 w-5" />} accent="blue" />
-        <KpiCard title="กำไรขั้นต้น" value={`${fmt(kpi.gross)} ฿`} icon={<PiggyBank className="h-5 w-5" />} accent="emerald" />
-        <KpiCard title="ต้นทุนขาย (COGS)" value={`${fmt(kpi.cogs)} ฿`} icon={<PackageSearch className="h-5 w-5" />} accent="slate" />
-        <KpiCard title="ยอดขาย Facebook" value={`${fmt(kpi.fbRevenue)} ฿`} icon={<FacebookIcon className="h-5 w-5" />} accent="indigo" />
-        <KpiCard title="ยอดขาย TikTok" value={`${fmt(kpi.ttRevenue)} ฿`} icon={<TikTokIcon className="h-5 w-5" />} accent="pink" />
-        <KpiCard title="ค่าโฆษณารวม" value={`${fmt(kpi.adTotal)} ฿`} icon={<Coins className="h-5 w-5" />} accent="slate" />
-        <KpiCard title="กำไรสุทธิ" value={`${fmt(kpi.netProfit)} ฿`} icon={<Calculator className="h-5 w-5" />} accent="emerald" />
+      {/* KPI แถวหลัก: ใช้ auto-fit ให้การ์ด “กว้างขึ้นอัตโนมัติ” */}
+      <section className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
+        <KpiCard title="ยอดขายรวม" value={`${fmt(kpi.total)} ฿`} icon={<BarChart2 className="h-7 w-7" />} accent="blue" />
+        <KpiCard title="กำไรขั้นต้น" value={`${fmt(kpi.gross)} ฿`} icon={<PiggyBank className="h-7 w-7" />} accent="emerald" />
+        <KpiCard title="ต้นทุนขาย (COGS)" value={`${fmt(kpi.cogs)} ฿`} icon={<PackageSearch className="h-7 w-7" />} accent="slate" />
+        <KpiCard title="ยอดขาย Facebook" value={`${fmt(kpi.fbRevenue)} ฿`} icon={<FacebookIcon className="h-7 w-7" />} accent="indigo" />
+        <KpiCard title="ยอดขาย TikTok" value={`${fmt(kpi.ttRevenue)} ฿`} icon={<TikTokIcon className="h-7 w-7" />} accent="pink" />
+        <KpiCard title="ค่าโฆษณารวม" value={`${fmt(kpi.adTotal)} ฿`} icon={<Coins className="h-7 w-7" />} accent="slate" />
+        <KpiCard title="กำไรสุทธิ" value={`${fmt(kpi.netProfit)} ฿`} icon={<Calculator className="h-7 w-7" />} accent="emerald" />
       </section>
 
-      {/* แถว KPI ต่อช่องทาง: Ad Cost + ROAS */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard title="ค่าโฆษณา Facebook" value={`${fmt(kpi.fbAd)} ฿`} icon={<FacebookIcon className="h-5 w-5" />} accent="indigo" />
-        <KpiCard title="ROAS Facebook" value={`${kpi.fbROAS.toFixed(2)}x`} icon={<TrendingUp className="h-5 w-5" />} accent="indigo" />
-        <KpiCard title="ค่าโฆษณา TikTok" value={`${fmt(kpi.ttAd)} ฿`} icon={<TikTokIcon className="h-5 w-5" />} accent="pink" />
-        <KpiCard title="ROAS TikTok" value={`${kpi.ttROAS.toFixed(2)}x`} icon={<TrendingUp className="h-5 w-5" />} accent="pink" />
+      {/* KPI ต่อช่องทาง */}
+      <section className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
+        <KpiCard title="ค่าโฆษณา Facebook" value={`${fmt(kpi.fbAd)} ฿`} icon={<FacebookIcon className="h-7 w-7" />} accent="indigo" />
+        <KpiCard title="ROAS Facebook" value={`${kpi.fbROAS.toFixed(2)}x`} icon={<TrendingUp className="h-7 w-7" />} accent="indigo" />
+        <KpiCard title="ค่าโฆษณา TikTok" value={`${fmt(kpi.ttAd)} ฿`} icon={<TikTokIcon className="h-7 w-7" />} accent="pink" />
+        <KpiCard title="ROAS TikTok" value={`${kpi.ttROAS.toFixed(2)}x`} icon={<TrendingUp className="h-7 w-7" />} accent="pink" />
       </section>
 
       {/* ตาราง + กราฟ */}
@@ -318,7 +317,7 @@ function ReportsInner() {
                 </button>
               </div>
             ) : (
-              <div className="h-[260px]">
+              <div className="h-[280px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -376,16 +375,18 @@ function KpiCard({
       : "from-blue-100 to-blue-50 text-blue-700 ring-blue-200";
 
   return (
-    <div className="card">
-      <div className="card-body flex items-center gap-4">
+    <div className="card min-h-[104px]">
+      <div className="card-body flex items-center gap-4 p-5 md:p-6">
         <div
-          className={`h-11 w-11 rounded-2xl grid place-items-center ring-1 bg-gradient-to-b ${ring}`}
+          className={`h-12 w-12 md:h-14 md:w-14 rounded-2xl grid place-items-center ring-1 bg-gradient-to-b ${ring}`}
         >
           {icon}
         </div>
-        <div>
-          <div className="text-slate-500 text-sm">{title}</div>
-          <div className="text-2xl font-semibold">{value}</div>
+        <div className="min-w-0">
+          <div className="text-slate-500 text-sm md:text-[15px] leading-tight">{title}</div>
+          <div className="mt-1 text-2xl md:text-3xl font-semibold tracking-tight tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">
+            {value}
+          </div>
         </div>
       </div>
     </div>
