@@ -1,16 +1,19 @@
 // src/app/layout.tsx
 import "@/app/globals.css";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import ClientProviders from "@/app/ClientProviders";
 
 export const metadata: Metadata = {
   title: "Sakura",
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-  },
+};
+
+// ย้าย viewport ออกมาเป็น export แยกตามสเปค App Router
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
