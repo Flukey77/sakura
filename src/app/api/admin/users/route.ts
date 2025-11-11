@@ -1,18 +1,17 @@
-// src/app/api/admin/users/route.ts
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth-options";        // << ใช้จาก lib
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic"; // กัน cache dev
+export const dynamic = "force-dynamic";
 
 function isAdmin(session: any) {
   return !!session && (session.user as any)?.role === "ADMIN";
 }
 
-/** GET /api/admin/users -> คืน array ของผู้ใช้ */
+/** GET /api/admin/users – รายชื่อผู้ใช้ทั้งหมด (สำหรับตาราง) */
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!isAdmin(session)) {
@@ -27,7 +26,7 @@ export async function GET() {
   return NextResponse.json(users);
 }
 
-/** POST /api/admin/users -> สร้างผู้ใช้ */
+/** POST /api/admin/users – สร้างผู้ใช้ใหม่ */
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!isAdmin(session)) {
@@ -36,13 +35,12 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({} as any));
   const { username, password, name, role } = body || {};
-
   if (!username || !password) {
     return NextResponse.json({ error: "username/password required" }, { status: 400 });
   }
 
-  const exist = await prisma.user.findUnique({ where: { username } });
-  if (exist) {
+  const existed = await prisma.user.findUnique({ where: { username } });
+  if (existed) {
     return NextResponse.json({ error: "Username already exists" }, { status: 409 });
   }
 
@@ -52,11 +50,10 @@ export async function POST(req: Request) {
       username,
       password: hashed,
       name: name || null,
-      role: role === "ADMIN" ? "ADMIN" : "EMPLOYEE",
+      role: (String(role).toUpperCase() === "ADMIN") ? "ADMIN" : "EMPLOYEE",
     },
     select: { id: true, username: true, name: true, role: true, createdAt: true },
   });
 
   return NextResponse.json({ ok: true, user }, { status: 201 });
 }
-
