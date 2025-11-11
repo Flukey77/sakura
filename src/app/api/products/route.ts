@@ -1,5 +1,4 @@
-﻿// src/app/api/products/route.ts
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
@@ -9,7 +8,7 @@ export async function GET(req: Request) {
 
   const q = (searchParams.get("q") || "").trim();
   const page = Math.max(1, Number(searchParams.get("page") || 1));
-  const pageSizeRaw = Number(searchParams.get("pageSize") || 20);
+  const pageSizeRaw = Number(searchParams.get("pageSize") || 10); // ← ค่าเริ่มต้น 10
   const pageSize = Math.min(Math.max(5, pageSizeRaw), 100); // 5–100
 
   let where: Prisma.ProductWhereInput | undefined;

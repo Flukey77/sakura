@@ -29,7 +29,7 @@ export default function ProductsPage() {
   // search + pagination
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(20); // ← 20 รายการต่อหน้า
+  const [pageSize] = useState(10); // ← แสดง 10 รายการต่อหน้า
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
 
@@ -128,7 +128,6 @@ export default function ProductsPage() {
       });
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok) {
-        // 401 / 403 จะเข้าที่นี่
         alert(j?.error || "บันทึกไม่สำเร็จ (ต้องเป็นผู้ดูแลระบบ)");
         return;
       }
