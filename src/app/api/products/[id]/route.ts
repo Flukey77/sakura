@@ -1,87 +1,82 @@
-// src/app/api/products/route.ts
-import { NextResponse } from "next/server";
+// src/app/api/products/[id]/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth-options";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
 
-/** GET /api/products?q=&page=&pageSize= */
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-  const q = (searchParams.get("q") || "").trim();
-  const page = Math.max(1, Number(searchParams.get("page") || 1));
-  const pageSizeRaw = Number(searchParams.get("pageSize") || 50);
-  const pageSize = Math.min(Math.max(5, pageSizeRaw), 100);
-
-  // ใช้ QueryMode ที่เป็นชนิดของ Prisma เท่านั้น (ห้าม string ธรรมดา)
-  const mode: Prisma.QueryMode = "insensitive";
-
-  const where: Prisma.ProductWhereInput | undefined = q
-    ? {
-        OR: [
-          { code: { contains: q, mode } },
-          { name: { contains: q, mode } },
-        ],
-      }
-    : undefined;
-
-  const total = await prisma.product.count({ where });
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-
-  const items = await prisma.product.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    skip: (page - 1) * pageSize,
-    take: pageSize,
-    select: {
-      id: true,
-      code: true,
-      name: true,
-      cost: true,
-      price: true,
-      stock: true,
-      safetyStock: true,
-      createdAt: true,
-    },
-  });
-
-  return NextResponse.json({
-    ok: true,
-    items,
-    page,
-    pageSize,
-    total,
-    pages,
-  });
+function ensureIntId(id: string) {
+  const n = Number(id);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw NextResponse.json({ error: "Invalid product id" }, { status: 400 });
+  }
+  return n;
 }
 
-/** POST /api/products */
-export async function POST(req: Request) {
-  try {
-    const body = (await req.json()) as {
-      code: string;
-      name: string;
-      cost: number | string;
-      price: number | string;
-      stock?: number;
-    };
+async function requireAdmin() {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    throw NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if ((session.user as any)?.role !== "ADMIN") {
+    throw NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return session;
+}
 
-    const code = (body.code || "").trim();
-    const name = (body.name || "").trim();
-    if (!code || !name) {
-      return NextResponse.json(
-        { ok: false, message: "code/name required" },
-        { status: 400 }
-      );
+/** PATCH /api/products/:id
+ *  อนุญาต ADMIN อัปเดต: cost, price, stock, safetyStock (ส่งมาเฉพาะที่ต้องการแก้)
+ *  body: { cost?, price?, stock?, safetyStock? }
+ */
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await requireAdmin();
+    const id = ensureIntId(params.id);
+
+    const body = await req.json().catch(() => ({} as any));
+    const data: Record<string, any> = {};
+
+    if (body.cost !== undefined) {
+      const n = Number(body.cost);
+      if (Number.isNaN(n) || n < 0) {
+        return NextResponse.json({ error: "Invalid cost" }, { status: 400 });
+      }
+      data.cost = n;
     }
 
-    const product = await prisma.product.create({
-      data: {
-        code,
-        name,
-        cost: String(body.cost ?? 0),   // Decimal ใน Prisma: ส่งเป็น string ปลอดภัยสุด
-        price: String(body.price ?? 0), // เช่น "0" หรือ "100.25"
-        stock: Number(body.stock ?? 0),
-      },
+    if (body.price !== undefined) {
+      const n = Number(body.price);
+      if (Number.isNaN(n) || n < 0) {
+        return NextResponse.json({ error: "Invalid price" }, { status: 400 });
+      }
+      data.price = n;
+    }
+
+    if (body.stock !== undefined) {
+      const n = Number(body.stock);
+      if (!Number.isInteger(n) || n < 0) {
+        return NextResponse.json({ error: "Invalid stock" }, { status: 400 });
+      }
+      data.stock = n;
+    }
+
+    if (body.safetyStock !== undefined) {
+      const n = Number(body.safetyStock);
+      if (!Number.isInteger(n) || n < 0) {
+        return NextResponse.json({ error: "Invalid safetyStock" }, { status: 400 });
+      }
+      data.safetyStock = n;
+    }
+
+    if (!Object.keys(data).length) {
+      return NextResponse.json({ error: "No changes" }, { status: 400 });
+    }
+
+    const updated = await prisma.product.update({
+      where: { id },
+      data,
       select: {
         id: true,
         code: true,
@@ -90,15 +85,36 @@ export async function POST(req: Request) {
         price: true,
         stock: true,
         safetyStock: true,
-        createdAt: true,
       },
     });
 
-    return NextResponse.json({ ok: true, product }, { status: 201 });
+    return NextResponse.json({ ok: true, product: updated });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, message: e?.message ?? "error" },
-      { status: 500 }
-    );
+    if (e?.status) return e; // rethrow NextResponse errors above
+    return NextResponse.json({ error: e?.message ?? "Update failed" }, { status: 500 });
+  }
+}
+
+/** DELETE /api/products/:id  (ADMIN เท่านั้น) */
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await requireAdmin();
+    const id = ensureIntId(params.id);
+
+    await prisma.product.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    if (e?.status) return e;
+    // FK constraint
+    if (e?.code === "P2003") {
+      return NextResponse.json(
+        {
+          error:
+            "ลบไม่ได้เพราะยังมีข้อมูลที่อ้างถึงสินค้าอยู่ (foreign key) — ตรวจสอบความสัมพันธ์หรือ onDelete: Cascade ใน schema.prisma",
+        },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({ error: e?.message ?? "Delete failed" }, { status: 500 });
   }
 }

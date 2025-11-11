@@ -121,7 +121,6 @@ export default function NewSalePage() {
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    // กันเผลอกดตอนสต๊อกไม่พอ
     if (blockSubmit) {
       const msg = stockIssues.insufficient
         .map((r) => `• ${r.code}: ต้องการ ${r.need} แต่คงเหลือ ${r.have}`)
@@ -135,20 +134,12 @@ export default function NewSalePage() {
     const f = new FormData(e.currentTarget);
     const rawItems = items
       .filter((it) => it.code.trim() && Number(it.qty) > 0)
-      .map((it) => ([
-        it.code.trim(),
-        (it.name || it.code).trim(),
-        Number(it.qty || 0),
-        to2(it.price),
-        to2(it.discount || 0),
-      ]))
-      // ลด payload: แปลงเป็น array แล้วค่อย map กลับเป็น object
-      .map(([code, name, qty, price, discount]) => ({
-        code: code as string,
-        name: name as string,
-        qty: qty as number,
-        price: price as number,
-        discount: discount as number,
+      .map((it) => ({
+        code: it.code.trim(),
+        name: (it.name || it.code).trim(),
+        qty: Number(it.qty || 0),
+        price: to2(it.price),
+        discount: to2(it.discount || 0),
       }));
 
     if (!rawItems.length) {
@@ -158,12 +149,12 @@ export default function NewSalePage() {
     }
 
     const payload = {
-      // ไม่บังคับเลขเอกสาร ปล่อยให้แบ็กเอนด์ออกเลข
+      // ปล่อยให้แบ็กเอนด์ออกเลข (ส่งได้ แต่ถ้าชน ระบบจะออกใหม่ให้)
       docNo: String(f.get("docNo") || "").trim() || undefined,
       docDate: String(f.get("docDate") || todayYMD()),
       channel: String(f.get("channel") || "") || null,
       customer: {
-        // **สำคัญ:** ส่งเฉพาะข้อมูล ไม่ส่ง id → ให้ API ตัดสินใจ findOrCreate
+        // ไม่ใส่ id — ให้ API ตัดสินใจ findOrCreate จาก phone/email
         name: String(f.get("cusName") || "").trim(),
         phone: String(f.get("cusPhone") || "").trim(),
         email: String(f.get("cusEmail") || "").trim(),
@@ -220,12 +211,11 @@ export default function NewSalePage() {
           พบ {stockIssues.insufficient.length} แถวที่สต๊อกไม่พอ — แก้ไขก่อนบันทึก
         </div>
       )}
-      {!blockSubmit &&
-        stockIssues.belowSafety.length > 0 && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-700">
-            มี {stockIssues.belowSafety.length} รายการที่ต่ำกว่า Safety Stock (ยังบันทึกได้)
-          </div>
-        )}
+      {!blockSubmit && stockIssues.belowSafety.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-700">
+          มี {stockIssues.belowSafety.length} รายการที่ต่ำกว่า Safety Stock (ยังบันทึกได้)
+        </div>
+      )}
 
       {/* ฟอร์มหลัก */}
       <form id="saleForm" onSubmit={onSubmit} className="space-y-6">
@@ -251,9 +241,7 @@ export default function NewSalePage() {
               <div>
                 <label className="text-sm">ช่องทางการขาย</label>
                 <select name="channel" className="input mt-1 w-full" defaultValue="">
-                  <option value="" disabled>
-                    กรุณาเลือก
-                  </option>
+                  <option value="" disabled>กรุณาเลือก</option>
                   <option value="TikTok">TikTok</option>
                   <option value="Facebook">Facebook</option>
                   <option value="หน้าร้าน">หน้าร้าน</option>
@@ -278,12 +266,7 @@ export default function NewSalePage() {
             <div className="p-5 space-y-4">
               <div>
                 <label className="text-sm">ชื่อลูกค้า</label>
-                <input
-                  name="cusName"
-                  className="input mt-1 w-full"
-                  placeholder="พิมพ์ชื่อ/รหัส"
-                  required
-                />
+                <input name="cusName" className="input mt-1 w-full" placeholder="พิมพ์ชื่อ/รหัส" required />
               </div>
               <div>
                 <label className="text-sm">เบอร์โทรศัพท์ลูกค้า</label>
@@ -305,11 +288,7 @@ export default function NewSalePage() {
         <div className="rounded-2xl border bg-white">
           <div className="p-5 border-b flex items-center justify-between">
             <h2 className="font-semibold text-lg">รายการสินค้า</h2>
-            <button
-              type="button"
-              onClick={addRow}
-              className="rounded-xl border px-3 py-1.5 hover:bg-slate-50"
-            >
+            <button type="button" onClick={addRow} className="rounded-xl border px-3 py-1.5 hover:bg-slate-50">
               + เพิ่มแถว
             </button>
           </div>
@@ -334,10 +313,8 @@ export default function NewSalePage() {
                     (Number(it.discount) || 0);
                   const code = it.code.trim();
                   const info = code ? availability[code] : undefined;
-                  const notEnough =
-                    !!info && (info.stock ?? 0) - (Number(it.qty) || 0) < 0;
-                  const underSafety =
-                    !!info && (info.stock ?? 0) < (info.safetyStock ?? 0);
+                  const notEnough = !!info && (info.stock ?? 0) - (Number(it.qty) || 0) < 0;
+                  const underSafety = !!info && (info.stock ?? 0) < (info.safetyStock ?? 0);
 
                   return (
                     <tr key={i} className="border-t">
@@ -386,18 +363,12 @@ export default function NewSalePage() {
                         />
                       </td>
                       <td className="py-2 px-4 text-right">
-                        {to2(line).toLocaleString("th-TH", {
-                          minimumFractionDigits: 2,
-                        })}
+                        {to2(line).toLocaleString("th-TH", { minimumFractionDigits: 2 })}
                         {notEnough && (
-                          <div className="text-xs text-red-600 mt-1">
-                            สต๊อกไม่พอ (เหลือ {info?.stock ?? 0})
-                          </div>
+                          <div className="text-xs text-red-600 mt-1">สต๊อกไม่พอ (เหลือ {info?.stock ?? 0})</div>
                         )}
                         {!notEnough && underSafety && (
-                          <div className="text-xs text-amber-600 mt-1">
-                            ต่ำกว่า Safety Stock
-                          </div>
+                          <div className="text-xs text-amber-600 mt-1">ต่ำกว่า Safety Stock</div>
                         )}
                       </td>
                       <td className="py-2 px-2 text-right">
@@ -423,23 +394,15 @@ export default function NewSalePage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>รวมก่อนภาษี</div>
-                <div>
-                  {to2(totalBeforeVat).toLocaleString("th-TH", {
-                    minimumFractionDigits: 2,
-                  })}
-                </div>
+                <div>{to2(totalBeforeVat).toLocaleString("th-TH", { minimumFractionDigits: 2 })}</div>
               </div>
               <div className="flex items-center justify-between">
                 <div>ภาษีมูลค่าเพิ่ม (7%)</div>
-                <div>
-                  {vat.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
-                </div>
+                <div>{vat.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</div>
               </div>
               <div className="mt-3 rounded-xl bg-slate-100 p-4 flex items-center justify-between font-semibold">
                 <div>รวมสุทธิ</div>
-                <div className="text-xl">
-                  {grand.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
-                </div>
+                <div className="text-xl">{grand.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</div>
               </div>
             </div>
           </div>
