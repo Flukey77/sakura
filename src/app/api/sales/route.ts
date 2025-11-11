@@ -18,7 +18,7 @@ function toDateThaiAware(x?: string): Date {
   // เผื่อรับมารูปแบบ dd/MM/yyyy (ไทย) แบบเร็ว ๆ
   const m = String(x).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
-    let [_, dd, mm, yyyy] = m;
+    let [, dd, mm, yyyy] = m;
     let y = parseInt(yyyy, 10);
     if (y > 2500) y -= 543; // แปลง พ.ศ. -> ค.ศ.
     return new Date(y, parseInt(mm, 10) - 1, parseInt(dd, 10));
@@ -55,9 +55,10 @@ function buildDocNo(d: Date, seq: number) {
 
 /** สร้าง/หาเลขเอกสารแบบกันชนกัน (retry ได้) */
 async function generateDocNo(now: Date) {
-  const prefix = `SO-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
-    now.getDate()
-  ).padStart(2, "0")}`;
+  const prefix = `SO-${now.getFullYear()}${String(now.getMonth() + 1).padStart(
+    2,
+    "0"
+  )}${String(now.getDate()).padStart(2, "0")}`;
 
   const last = await prisma.sale.findFirst({
     where: { docNo: { startsWith: prefix } },
@@ -75,8 +76,10 @@ async function generateDocNo(now: Date) {
 /** หา/สร้างลูกค้าให้ปลอดภัยต่อ unique(phone/email) */
 async function findOrCreateCustomer(reqCust: any) {
   const name = (reqCust?.name ? String(reqCust.name) : "").trim();
-  const phone = (reqCust?.phone ? String(reqCust.phone) : "").trim() || undefined;
-  const email = (reqCust?.email ? String(reqCust.email) : "").trim() || undefined;
+  const phone =
+    (reqCust?.phone ? String(reqCust.phone) : "").trim() || undefined;
+  const email =
+    (reqCust?.email ? String(reqCust.email) : "").trim() || undefined;
 
   // ถ้ามี id มาใช้เลย
   if (reqCust?.id) {
@@ -103,12 +106,20 @@ async function findOrCreateCustomer(reqCust: any) {
 
   try {
     const created = await prisma.customer.create({
-      data: { name: name || phone || email || "CUSTOMER", phone, email, tags: [] },
+      data: {
+        name: name || phone || email || "CUSTOMER",
+        phone,
+        email,
+        tags: [],
+      },
       select: { id: true, name: true },
     });
     return { id: created.id, name: created.name };
   } catch (e: any) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2002"
+    ) {
       const again = await prisma.customer.findFirst({
         where: {
           OR: [
@@ -131,7 +142,10 @@ export async function POST(req: Request) {
     const session = await getServerSession(authOptions);
     const userId = (session?.user as any)?.id as string | undefined;
     if (!userId) {
-      return NextResponse.json({ ok: false, message: "ไม่ได้ล็อกอิน" }, { status: 401 });
+      return NextResponse.json(
+        { ok: false, message: "ไม่ได้ล็อกอิน" },
+        { status: 401 }
+      );
     }
 
     const body = await req.json();
@@ -139,17 +153,24 @@ export async function POST(req: Request) {
     const channel: string | null = body.channel ?? null;
 
     // ลูกค้า
-    const { id: customerId, name: customerName } = await findOrCreateCustomer(body.customer || {});
+    const { id: customerId, name: customerName } = await findOrCreateCustomer(
+      body.customer || {}
+    );
 
     // รายการสินค้า
     const items = normalizeItems(body.items || []);
     if (!items.length) {
-      return NextResponse.json({ ok: false, message: "ไม่มีรายการสินค้า" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, message: "ไม่มีรายการสินค้า" },
+        { status: 400 }
+      );
     }
 
     // upsert สินค้าให้ครบ
     const codes = Array.from(new Set(items.map((x) => x.code)));
-    const present = await prisma.product.findMany({ where: { code: { in: codes } } });
+    const present = await prisma.product.findMany({
+      where: { code: { in: codes } },
+    });
     const pmap = new Map(present.map((p) => [p.code, p]));
 
     for (const code of codes) {
@@ -166,7 +187,10 @@ export async function POST(req: Request) {
       const p = pmap.get(it.code)!;
       if ((p.stock ?? 0) - it.qty < 0) {
         return NextResponse.json(
-          { ok: false, message: `สต๊อกไม่พอสำหรับ ${it.code} (คงเหลือ ${p.stock}, ต้องการ ${it.qty})` },
+          {
+            ok: false,
+            message: `สต๊อกไม่พอสำหรับ ${it.code} (คงเหลือ ${p.stock}, ต้องการ ${it.qty})`,
+          },
           { status: 400 }
         );
       }
@@ -205,11 +229,8 @@ export async function POST(req: Request) {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const created = await prisma.$transaction(async (tx) => {
-          // ถ้าอยากใช้หมายเลขที่ผู้ใช้ส่งมา ให้ลอง create ตรง ๆ ก่อน
-          if (attempt === 0 && wantDocNo) {
-            // nothing
-          } else if (!wantDocNo) {
-            // ออกเลขใหม่รอบนี้ (กรณีรอบก่อนชน)
+          if (!(attempt === 0 && wantDocNo)) {
+            // ออกเลขใหม่รอบนี้ (กรณีรอบก่อนชน หรือ UI ไม่ได้ส่งมา)
             finalDocNo = await generateDocNo(docDate);
           }
 
@@ -285,57 +306,112 @@ export async function POST(req: Request) {
     );
   } catch (err: any) {
     console.error("POST /api/sales error:", err);
-    return NextResponse.json({ ok: false, message: err?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, message: err?.message ?? "Server error" },
+      { status: 500 }
+    );
   }
 }
 
-/** ------------------------ GET: List Sales (เดิม แต่ขัดเกลาเล็กน้อย) ------------------------ */
+/** ------------------------ GET: List Sales + Pagination ------------------------ */
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const from = searchParams.get("from");
-  const to = searchParams.get("to");
-  const statusParam = (searchParams.get("status") || "ALL").toUpperCase();
+  try {
+    const { searchParams } = new URL(req.url);
 
-  const baseWhere: any = {};
-  if (from) baseWhere.date = { gte: new Date(from) };
-  if (to) baseWhere.date = { ...(baseWhere.date || {}), lte: new Date(`${to}T23:59:59.999Z`) };
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
+    const statusParam = (searchParams.get("status") || "ALL").toUpperCase();
 
-  const countersSeed = await prisma.sale.findMany({ where: baseWhere, select: { status: true } });
-  const counters = { ALL: 0, NEW: 0, PENDING: 0, CONFIRMED: 0, CANCELLED: 0 };
-  for (const s of countersSeed) {
-    counters.ALL += 1;
-    const k = (s.status || "NEW").toUpperCase() as keyof typeof counters;
-    if (k in counters) counters[k] += 1;
+    // Pagination params
+    const page = Math.max(1, Number(searchParams.get("page") || 1));
+    const pageSizeRaw = Number(searchParams.get("pageSize") || 20);
+    const pageSize = Math.min(Math.max(5, pageSizeRaw), 100); // 5–100
+
+    const baseWhere: any = {};
+    if (from) baseWhere.date = { gte: new Date(from) };
+    if (to)
+      baseWhere.date = {
+        ...(baseWhere.date || {}),
+        lte: new Date(`${to}T23:59:59.999Z`),
+      };
+
+    // ตัวนับทุกสถานะ (สำหรับ badge ที่แท็บ)
+    const countersSeed = await prisma.sale.findMany({
+      where: baseWhere,
+      select: { status: true },
+    });
+    const counters = { ALL: 0, NEW: 0, PENDING: 0, CONFIRMED: 0, CANCELLED: 0 };
+    for (const s of countersSeed) {
+      counters.ALL += 1;
+      const k = (s.status || "NEW").toUpperCase() as keyof typeof counters;
+      if (k in counters) counters[k] += 1;
+    }
+
+    const where: any = { ...baseWhere };
+    if (statusParam !== "ALL") where.status = statusParam;
+
+    // รวมจำนวนเรคอร์ดตามเงื่อนไข (ไว้คำนวณจำนวนหน้า)
+    const totalCount = await prisma.sale.count({ where });
+
+    // page data
+    const sales = await prisma.sale.findMany({
+      where,
+      orderBy: { date: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        items: true,
+        user: { select: { id: true, username: true, name: true } },
+        customerRef: {
+          select: { id: true, name: true, phone: true, email: true },
+        },
+      },
+    });
+
+    // summary (รวมทั้งช่วงที่กรอง ไม่ใช่เฉพาะหน้าปัจจุบัน)
+    const allForSummary = await prisma.sale.findMany({
+      where,
+      select: {
+        total: true,
+        totalCost: true,
+        items: { select: { cogs: true } },
+      },
+    });
+
+    const summary = allForSummary.reduce(
+      (acc, s) => {
+        const total = new D(s.total || 0);
+        const cogs =
+          s.totalCost != null
+            ? new D(s.totalCost)
+            : s.items.reduce((t, i) => t.plus(i.cogs), new D(0));
+
+        acc.count += 1;
+        acc.total = r2(new D(acc.total).plus(total));
+        acc.cogs = r2(new D(acc.cogs).plus(cogs));
+        acc.gross = r2(new D(acc.total).minus(acc.cogs));
+        return acc;
+      },
+      { count: 0, total: 0, cogs: 0, gross: 0 }
+    );
+
+    return NextResponse.json({
+      ok: true,
+      summary,
+      counters,
+      sales,
+      pagination: {
+        page,
+        pageSize,
+        totalCount,
+        totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
+      },
+    });
+  } catch (err: any) {
+    console.error("GET /api/sales error:", err);
+    return NextResponse.json(
+      { ok: false, message: err?.message ?? "Server error" },
+      { status: 500 }
+    );
   }
-
-  const where: any = { ...baseWhere };
-  if (statusParam !== "ALL") where.status = statusParam;
-
-  const sales = await prisma.sale.findMany({
-    where,
-    orderBy: { date: "desc" },
-    include: {
-      items: true,
-      user: { select: { id: true, username: true, name: true } },
-      customerRef: { select: { id: true, name: true, phone: true, email: true } },
-    },
-  });
-
-  const summary = sales.reduce(
-    (acc, s) => {
-      const total = new D(s.total || 0);
-      const cogs =
-        s.totalCost != null
-          ? new D(s.totalCost)
-          : s.items.reduce((t, i) => t.plus(i.cogs), new D(0));
-      acc.count += 1;
-      acc.total = r2(new D(acc.total).plus(total));
-      acc.cogs = r2(new D(acc.cogs).plus(cogs));
-      acc.gross = r2(new D(acc.total).minus(acc.cogs));
-      return acc;
-    },
-    { count: 0, total: 0, cogs: 0, gross: 0 }
-  );
-
-  return NextResponse.json({ ok: true, summary, counters, sales });
 }
