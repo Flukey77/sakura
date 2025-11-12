@@ -121,6 +121,26 @@
 /* ---------- Utilities ---------- */
 @layer utilities {
   .container-safe { @apply mx-auto w-full max-w-[1200px] px-4 sm:px-6 lg:px-8; }
+
+  /* จัดกึ่งกลางทั้งหน้าจอ (ใช้กับหน้าว่าง/ข้อความเดี่ยว ๆ) */
+  .center-page {
+    min-height: 100svh;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+  }
+
+  /* จัดกึ่งกลางเฉพาะบล็อก (เช่น fallback ของ Suspense หรือกล่องในหน้า) */
+  .center-block {
+    min-height: 40svh;
+    display: grid;
+    place-items: center;
+  }
+
+  /* เอฟเฟกต์เข้า Toast/ชิ้นส่วนแจ้งเตือน */
+  .toast-enter {
+    animation: toast-fade-in 180ms ease-out, toast-pop 180ms ease-out;
+  }
 }
 
 /* keyframes สำหรับวงกระพริบ */
@@ -128,4 +148,14 @@
   0%   { transform: scale(0.6); opacity: 0.9; }
   80%  { transform: scale(1.6); opacity: 0; }
   100% { opacity: 0; }
+}
+
+/* keyframes สำหรับ toast */
+@keyframes toast-fade-in {
+  from { opacity: 0 }
+  to   { opacity: 1 }
+}
+@keyframes toast-pop {
+  from { transform: translateY(-6px) scale(.98) }
+  to   { transform: translateY(0)    scale(1) }
 }

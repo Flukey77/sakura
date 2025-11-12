@@ -10,9 +10,5 @@ export default function LogoutPage() {
   useEffect(() => {
     signOut({ callbackUrl: "/login?logout=1" });
   }, []);
-  return (
-    <div className="min-h-screen grid place-items-center text-slate-500">
-      กำลังออกจากระบบ...
-    </div>
-  );
+  return <div className="center-page text-slate-500">กำลังออกจากระบบ...</div>;
 }
