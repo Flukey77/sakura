@@ -1,4 +1,5 @@
-﻿"use client";
+﻿// src/app/(app)/sales/page.tsx
+"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -205,6 +206,17 @@ function SalesContent() {
     return base;
   }, [data?.isAdmin]);
 
+  // กล่องยืนยันก่อนเปลี่ยนสถานะ
+  const confirmChange = (docNo: string, from: string, to: string) => {
+    const fromTh = TH_STATUS[from]?.label || from;
+    const toTh = TH_STATUS[to]?.label || to;
+    const extra =
+      to === "CANCELLED"
+        ? "\n\nหมายเหตุ: การยกเลิกเป็นเพียงการเปลี่ยนสถานะ (ไม่ได้คืนสต็อกอัตโนมัติ)"
+        : "";
+    return confirm(`ยืนยันเปลี่ยนสถานะเอกสาร ${docNo}\nจาก: ${fromTh}\nเป็น: ${toTh}${extra}`);
+  };
+
   return (
     <div className="space-y-6">
       {/* สรุป */}
@@ -351,10 +363,22 @@ function SalesContent() {
                               className="rounded-xl border px-3 py-1 bg-white focus:outline-none"
                               value={current}
                               disabled={busy}
-                              onChange={(e) =>
-                                changeStatus(s.id, (e.target.value || "").toUpperCase())
-                              }
                               title="เปลี่ยนสถานะ"
+                              onChange={(e) => {
+                                const to = (e.target.value || "").toUpperCase() as
+                                  | "NEW"
+                                  | "PENDING"
+                                  | "CONFIRMED"
+                                  | "CANCELLED";
+                                if (to === current) return;
+
+                                // กล่องยืนยัน — ถ้าไม่ตกลง ให้รีเซ็ตค่า select กลับ
+                                if (!confirmChange(s.docNo, current, to)) {
+                                  (e.target as HTMLSelectElement).value = current;
+                                  return;
+                                }
+                                changeStatus(s.id, to);
+                              }}
                             >
                               {STATUS_OPTIONS.map((op) => (
                                 <option key={op.value} value={op.value}>
