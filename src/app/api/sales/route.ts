@@ -1,10 +1,10 @@
-﻿import { NextResponse } from "next/server";
+﻿// src/app/api/sales/route.ts
+import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
-import { Prisma } from "@prisma/client";
 
-/* --------------------------------- helpers -------------------------------- */
 const D = Prisma.Decimal;
 const r2 = (x: number | string | Prisma.Decimal) =>
   Number(new D(x ?? 0).toDecimalPlaces(2));
@@ -313,6 +313,10 @@ export async function POST(req: Request) {
 /* ------------------------------------ GET ---------------------------------- */
 export async function GET(req: Request) {
   try {
+    const session = await getServerSession(authOptions);
+    const role = (session?.user as any)?.role as string | undefined;
+    const isAdmin = role === "ADMIN";
+
     const { searchParams } = new URL(req.url);
 
     const from = searchParams.get("from");
@@ -370,21 +374,29 @@ export async function GET(req: Request) {
     if (baseAnd.length) baseWhere.AND = baseAnd;
     if (baseOr.length) baseWhere.OR = baseOr;
 
-    // counters
-    const countersSeed = await prisma.sale.findMany({
-      where: baseWhere,
-      select: { status: true },
-    });
-    const counters = { ALL: 0, NEW: 0, PENDING: 0, CONFIRMED: 0, CANCELLED: 0 };
-    for (const s of countersSeed) {
-      counters.ALL += 1;
-      const k = (s.status || "NEW").toUpperCase() as keyof typeof counters;
-      if (k in counters) counters[k] += 1;
+    // where สำหรับตาราง
+    let where: Prisma.SaleWhereInput = { ...baseWhere, deletedAt: null };
+    if (statusParam === "DELETED") {
+      if (!isAdmin) {
+        return NextResponse.json({ ok: false, message: "forbidden" }, { status: 403 });
+      }
+      where = { ...baseWhere, NOT: { deletedAt: null } };
+    } else if (statusParam !== "ALL") {
+      where = { ...where, status: statusParam };
     }
 
-    // where สำหรับตาราง
-    const where: Prisma.SaleWhereInput = { ...baseWhere };
-    if (statusParam !== "ALL") where.status = statusParam;
+    // counters (รวมทั้งหมดก่อน แล้วแยก DELETED)
+    const countersSeed = await prisma.sale.findMany({
+      where: { ...baseWhere },
+      select: { status: true, deletedAt: true },
+    });
+    const counters = { ALL: 0, NEW: 0, PENDING: 0, CONFIRMED: 0, CANCELLED: 0, DELETED: 0 };
+    for (const s of countersSeed) {
+      counters.ALL += 1;
+      if (s.deletedAt) counters.DELETED += 1;
+      const k = (s.status || "NEW").toUpperCase() as keyof typeof counters;
+      if (!s.deletedAt && k in counters) counters[k] += 1;
+    }
 
     const totalCount = await prisma.sale.count({ where });
 
@@ -403,6 +415,7 @@ export async function GET(req: Request) {
         channel: true,
         total: true,
         status: true,
+        deletedAt: true,
         customerRef: { select: { name: true } },
         items: { select: { cogs: true } },
         totalCost: true,
@@ -418,10 +431,14 @@ export async function GET(req: Request) {
       channel: r.channel,
       total: Number(r.total || 0),
       status: r.status,
+      deletedAt: r.deletedAt,
     }));
 
-    // สรุป (ไม่รวม CANCELLED ถ้า status=ALL)
-    let summaryWhere: Prisma.SaleWhereInput = { ...where };
+    // สรุป (ไม่รวม CANCELLED และ DELETED เมื่อ status=ALL)
+    let summaryWhere: Prisma.SaleWhereInput = { ...baseWhere, deletedAt: null };
+    if (statusParam !== "ALL" && statusParam !== "DELETED") {
+      summaryWhere = { ...summaryWhere, status: statusParam };
+    }
     if (statusParam === "ALL") {
       summaryWhere = { ...summaryWhere, NOT: { status: "CANCELLED" } };
     }
@@ -449,6 +466,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       ok: true,
+      isAdmin,
       summary,
       counters,
       sales,
