@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
+
+type Role = "ADMIN" | "EMPLOYEE";
 
 type Product = {
   id: number;
@@ -23,13 +26,17 @@ type ApiRes = {
 };
 
 export default function ProductsPage() {
+  const { data: session } = useSession();
+  const role = (session?.user as any)?.role as Role | undefined;
+  const canEdit = role === "ADMIN";
+
   const [rows, setRows] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
   // search + pagination
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(10); // ← แสดง 10 รายการต่อหน้า
+  const [pageSize] = useState(10);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
 
@@ -57,11 +64,22 @@ export default function ProductsPage() {
   }
   useEffect(() => {
     load(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // first load
 
   const list = useMemo(() => rows, [rows]);
 
+  function requireAdminGuard(): boolean {
+    if (!canEdit) {
+      alert("คุณไม่มีสิทธิ์ดำเนินการ (ต้องเป็นผู้ดูแลระบบ)");
+      return false;
+    }
+    return true;
+  }
+
   async function addProduct() {
+    if (!requireAdminGuard()) return;
+
     setCreating(true);
     try {
       const res = await fetch("/api/products", {
@@ -70,27 +88,32 @@ export default function ProductsPage() {
         body: JSON.stringify(form),
       });
       const j = await res.json().catch(() => ({} as any));
-      if (!res.ok) throw new Error(j?.error || j?.message || "create failed");
-
+      if (!res.ok) {
+        const msg = res.status === 403 ? "คุณไม่มีสิทธิ์เพิ่มสินค้า (ต้องเป็นผู้ดูแลระบบ)" : (j?.error || j?.message || "เพิ่มไม่สำเร็จ");
+        throw new Error(msg);
+      }
       setForm({ code: "", name: "", cost: "", price: "", stock: 0 });
       await load(1);
       alert("เพิ่มสินค้าเรียบร้อย");
     } catch (e: any) {
-      alert(e?.message ?? "error");
+      alert(e?.message ?? "เกิดข้อผิดพลาด");
     } finally {
       setCreating(false);
     }
   }
 
   async function deleteProduct(id: number, displayName: string) {
+    if (!requireAdminGuard()) return;
     if (!confirm(`ต้องการลบสินค้า "${displayName}" หรือไม่?`)) return;
+
     const key = String(id);
     setBusyKey(key);
     try {
       const res = await fetch(`/api/products/${id}`, { method: "DELETE" });
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok) {
-        alert(j?.error || j?.message || "ลบไม่สำเร็จ");
+        const msg = res.status === 403 ? "คุณไม่มีสิทธิ์ลบสินค้า (ต้องเป็นผู้ดูแลระบบ)" : (j?.error || j?.message || "ลบไม่สำเร็จ");
+        alert(msg);
         return;
       }
       await load(page);
@@ -104,8 +127,10 @@ export default function ProductsPage() {
     setRows((rows) => rows.map((r) => (r.id === id ? { ...r, [key]: val } : r)));
   }
 
-  // บันทึกแถวเดียว (ADMIN เท่านั้น – ถ้าไม่ใช่จะได้ 403)
+  // บันทึกแถวเดียว
   async function saveRow(p: Product) {
+    if (!requireAdminGuard()) return;
+
     const payload = {
       stock: Number(p.stock ?? 0),
       safetyStock: Number(p.safetyStock ?? 0),
@@ -128,7 +153,8 @@ export default function ProductsPage() {
       });
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok) {
-        alert(j?.error || "บันทึกไม่สำเร็จ (ต้องเป็นผู้ดูแลระบบ)");
+        const msg = res.status === 403 ? "คุณไม่มีสิทธิ์บันทึกข้อมูล (ต้องเป็นผู้ดูแลระบบ)" : (j?.error || "บันทึกไม่สำเร็จ");
+        alert(msg);
         return;
       }
       await load(page);
@@ -156,6 +182,17 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-6">
+      {/* แบนเนอร์สิทธิ์สำหรับ non-admin */}
+      {!canEdit && (
+        <div
+          role="status"
+          className="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 px-4 py-3"
+        >
+          คุณกำลังใช้งานในสิทธิ์ <b>พนักงาน</b> (EMPLOYEE) — หน้านี้เป็นแบบอ่านอย่างเดียว
+          การเพิ่ม/แก้ไข/ลบสินค้า ทำได้เฉพาะผู้ดูแลระบบ (ADMIN)
+        </div>
+      )}
+
       {/* หัว + ค้นหา */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">คลังสินค้า/สินค้า</h1>
@@ -173,45 +210,47 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* ฟอร์มเพิ่มสินค้า */}
-      <div className="card">
-        <div className="card-body grid grid-cols-1 md:grid-cols-6 gap-3">
-          <input
-            className="input"
-            placeholder="รหัสสินค้า"
-            value={form.code}
-            onChange={(e) => setForm({ ...form, code: e.target.value })}
-          />
-          <input
-            className="input"
-            placeholder="ชื่อสินค้า"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-          <input
-            className="input"
-            placeholder="ราคาทุน"
-            value={form.cost}
-            onChange={(e) => setForm({ ...form, cost: e.target.value })}
-          />
-          <input
-            className="input"
-            placeholder="ราคาขาย"
-            value={form.price}
-            onChange={(e) => setForm({ ...form, price: e.target.value })}
-          />
-          <input
-            className="input"
-            placeholder="สต็อก"
-            type="number"
-            value={form.stock}
-            onChange={(e) => setForm({ ...form, stock: Number(e.target.value) })}
-          />
-          <button className="btn btn-primary" disabled={creating} onClick={addProduct}>
-            {creating ? "กำลังบันทึก..." : "เพิ่ม"}
-          </button>
+      {/* ฟอร์มเพิ่มสินค้า — ซ่อนสำหรับ EMPLOYEE */}
+      {canEdit && (
+        <div className="card">
+          <div className="card-body grid grid-cols-1 md:grid-cols-6 gap-3">
+            <input
+              className="input"
+              placeholder="รหัสสินค้า"
+              value={form.code}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
+            />
+            <input
+              className="input"
+              placeholder="ชื่อสินค้า"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+            <input
+              className="input"
+              placeholder="ราคาทุน"
+              value={form.cost}
+              onChange={(e) => setForm({ ...form, cost: e.target.value })}
+            />
+            <input
+              className="input"
+              placeholder="ราคาขาย"
+              value={form.price}
+              onChange={(e) => setForm({ ...form, price: e.target.value })}
+            />
+            <input
+              className="input"
+              placeholder="สต็อก"
+              type="number"
+              value={form.stock}
+              onChange={(e) => setForm({ ...form, stock: Number(e.target.value) })}
+            />
+            <button className="btn btn-primary" disabled={creating} onClick={addProduct}>
+              {creating ? "กำลังบันทึก..." : "เพิ่ม"}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ตารางสินค้า */}
       <div className="card">
@@ -223,7 +262,7 @@ export default function ProductsPage() {
                 <th className="py-3 pr-3">ชื่อ</th>
                 <th className="py-3 pr-3">ทุน</th>
                 <th className="py-3 pr-3">ขาย</th>
-                <th className="py-3 pr-3">สต็อก</th>
+                <th className="py-3 pr-3">สต๊อก</th>
                 <th className="py-3 pr-3">Safety</th>
                 <th className="py-3 w-40 text-right">จัดการ</th>
               </tr>
@@ -251,7 +290,7 @@ export default function ProductsPage() {
                       <td className="py-2 pr-3">{p.cost}</td>
                       <td className="py-2 pr-3">{p.price}</td>
 
-                      {/* แก้ไขสต๊อกได้ */}
+                      {/* แก้ไขสต๊อกได้เฉพาะ ADMIN */}
                       <td className="py-2 pr-3">
                         <input
                           className="input w-24"
@@ -259,7 +298,7 @@ export default function ProductsPage() {
                           value={p.stock ?? 0}
                           onChange={(e) => updateRow(p.id, "stock", Number(e.target.value))}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") {
+                            if (e.key === "Enter" && canEdit) {
                               e.preventDefault();
                               saveRow({
                                 ...p,
@@ -267,10 +306,13 @@ export default function ProductsPage() {
                               });
                             }
                           }}
+                          disabled={!canEdit}
+                          readOnly={!canEdit}
+                          title={!canEdit ? "ต้องเป็นผู้ดูแลระบบจึงจะปรับสต๊อกได้" : undefined}
                         />
                       </td>
 
-                      {/* แก้ไข Safety ได้ */}
+                      {/* แก้ไข Safety ได้เฉพาะ ADMIN */}
                       <td className="py-2 pr-3">
                         <input
                           className="input w-24"
@@ -280,7 +322,7 @@ export default function ProductsPage() {
                             updateRow(p.id, "safetyStock", Number(e.target.value))
                           }
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") {
+                            if (e.key === "Enter" && canEdit) {
                               e.preventDefault();
                               saveRow({
                                 ...p,
@@ -290,6 +332,9 @@ export default function ProductsPage() {
                               });
                             }
                           }}
+                          disabled={!canEdit}
+                          readOnly={!canEdit}
+                          title={!canEdit ? "ต้องเป็นผู้ดูแลระบบจึงจะปรับ Safety ได้" : undefined}
                         />
                       </td>
 
@@ -297,15 +342,19 @@ export default function ProductsPage() {
                         <div className="flex gap-2 justify-end">
                           <button
                             className="btn"
-                            onClick={() => saveRow(p)}
-                            disabled={savingRowId === p.id}
+                            onClick={() => (canEdit ? saveRow(p) : requireAdminGuard())}
+                            disabled={savingRowId === p.id || !canEdit}
+                            title={!canEdit ? "ต้องเป็นผู้ดูแลระบบ" : undefined}
                           >
                             {savingRowId === p.id ? "กำลังบันทึก..." : "บันทึก"}
                           </button>
                           <button
                             className="btn border-red-200 text-red-600 hover:bg-red-50"
-                            disabled={busyKey === key}
-                            onClick={() => deleteProduct(p.id, p.name)}
+                            disabled={busyKey === key || !canEdit}
+                            onClick={() =>
+                              canEdit ? deleteProduct(p.id, p.name) : requireAdminGuard()
+                            }
+                            title={!canEdit ? "ต้องเป็นผู้ดูแลระบบ" : undefined}
                           >
                             {busyKey === key ? "กำลังลบ..." : "ลบ"}
                           </button>
