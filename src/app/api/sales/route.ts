@@ -1,5 +1,4 @@
-﻿// src/app/api/sales/route.ts
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
@@ -330,40 +329,56 @@ export async function GET(req: Request) {
     const from = searchParams.get("from");
     const to = searchParams.get("to");
     const statusParam = (searchParams.get("status") || "ALL").toUpperCase();
+
+    // เพิ่มตัวกรองใหม่
+    const doc = (searchParams.get("doc") || "").trim();
+    const customer = (searchParams.get("customer") || "").trim();
+    const channel = (searchParams.get("channel") || "").trim();
+
+    // คำค้นรวมเดิม (ยังรองรับ)
     const q = (searchParams.get("q") || "").trim();
 
     const page = Math.max(1, Number(searchParams.get("page") || 1));
     const pageSizeRaw = Number(searchParams.get("pageSize") || 10);
     const pageSize = Math.min(Math.max(5, pageSizeRaw), 100);
 
-    // --------- สร้าง baseWhere แบบ type-safe ----------
+    // --------- baseWhere ----------
     const baseWhere: Prisma.SaleWhereInput = {};
 
-    // จัดการช่วงวันที่ด้วย DateTimeFilter แยกก่อน
-    let dateFilter: Prisma.DateTimeFilter | undefined = undefined;
-    if (from) {
-      dateFilter = { ...(dateFilter ?? {}), gte: toDateThaiAware(from) };
-    }
+    // วันที่
+    let dateFilter: Prisma.DateTimeFilter | undefined;
+    if (from) dateFilter = { ...(dateFilter ?? {}), gte: toDateThaiAware(from) };
     if (to) {
       const t = toDateThaiAware(to);
       t.setHours(23, 59, 59, 999);
       dateFilter = { ...(dateFilter ?? {}), lte: t };
     }
-    if (dateFilter) {
-      baseWhere.date = dateFilter;
-    }
+    if (dateFilter) baseWhere.date = dateFilter;
 
-    // คำค้นหา (เลขเอกสาร/ชื่อลูกค้า)
+    // ฟิลเตอร์ใหม่: doc / customer / channel
+    const mode = Prisma.QueryMode.insensitive;
+    const andFilters: Prisma.SaleWhereInput[] = [];
+    if (doc) andFilters.push({ docNo: { contains: doc, mode } });
+    if (channel) andFilters.push({ channel: { contains: channel, mode } });
+    if (customer) {
+      andFilters.push({
+        OR: [
+          { customer: { contains: customer, mode } },
+          { customerRef: { name: { contains: customer, mode } } },
+        ],
+      });
+    }
+    if (andFilters.length) baseWhere.AND = andFilters;
+
+    // คำค้นรวม (เดิม)
     if (q) {
-      const mode = Prisma.QueryMode.insensitive;
       baseWhere.OR = [
         { docNo: { contains: q, mode } },
         { customer: { contains: q, mode } },
       ];
     }
-    // -----------------------------------------------
 
-    // นับแท็บสถานะ (ตาม baseWhere)
+    // ---------- counters ----------
     const countersSeed = await prisma.sale.findMany({
       where: baseWhere,
       select: { status: true },
@@ -381,30 +396,31 @@ export async function GET(req: Request) {
 
     const totalCount = await prisma.sale.count({ where });
 
-    // รายการในตาราง
-    const sales = await prisma.sale.findMany({
+    // รายการ
+    const salesRows = await prisma.sale.findMany({
       where,
       orderBy: { date: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      select: {
-        id: true,
-        docNo: true,
-        docDate: true,
-        date: true,
-        customer: true,
-        channel: true,
-        total: true,
-        status: true,
+      include: {
         user: { select: { id: true, username: true, name: true } },
         items: true,
-        customerRef: {
-          select: { id: true, name: true, phone: true, email: true, address: true },
-        },
+        customerRef: { select: { id: true, name: true, phone: true, email: true, address: true } },
       },
     });
 
-    // สรุปด้านบน
+    const sales = salesRows.map((r) => ({
+      id: r.id,
+      docNo: r.docNo,
+      docDate: r.docDate,
+      date: r.date,
+      customer: r.customer ?? r.customerRef?.name ?? null,
+      channel: r.channel,
+      total: Number(r.total || 0),
+      status: r.status,
+    }));
+
+    // สรุป
     let summaryWhere: Prisma.SaleWhereInput = { ...where };
     if (statusParam === "ALL") {
       summaryWhere = { ...summaryWhere, NOT: { status: "CANCELLED" as any } };

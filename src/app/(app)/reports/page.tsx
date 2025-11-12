@@ -1,5 +1,4 @@
-﻿// src/app/(app)/reports/page.tsx
-"use client";
+﻿"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -77,6 +76,7 @@ function ReportsInner() {
     router.replace(`/reports?${params.toString()}`, { scroll: false });
   };
 
+  // สร้างช่วงวันที่
   const { from, to } = useMemo(() => {
     const now = new Date();
     const toStr = now.toISOString().slice(0, 10);
@@ -95,6 +95,7 @@ function ReportsInner() {
     return { from: d.toISOString().slice(0, 10), to: toStr };
   }, [period]);
 
+  // ขาย
   const {
     data: salesData,
     error: salesErr,
@@ -104,19 +105,19 @@ function ReportsInner() {
     revalidateOnFocus: false,
   });
 
+  // โฆษณา
   const {
     data: adsData,
     error: adsErr,
     isLoading: adsLoading,
     mutate: refAds,
-  } = useSWR<AdsSummaryRes>(
-    `/api/ads/summary?from=${from}&to=${to}`,
-    fetcher,
-    { revalidateOnFocus: false }
-  );
+  } = useSWR<AdsSummaryRes>(`/api/ads/summary?from=${from}&to=${to}`, fetcher, {
+    revalidateOnFocus: false,
+  });
 
   const sales = salesData?.sales ?? [];
 
+  // KPIs
   const kpi = useMemo(() => {
     const total = Number(salesData?.summary?.total || 0);
     const gross = Number(salesData?.summary?.gross || 0);
@@ -137,6 +138,7 @@ function ReportsInner() {
     return { total, gross, cogs, adTotal, netProfit, fbRevenue, ttRevenue };
   }, [salesData?.summary, sales, adsData?.totalCost]);
 
+  // Chart
   const chartData = useMemo(() => {
     const bucket = new Map<string, number>();
     for (const s of sales) {
@@ -153,6 +155,7 @@ function ReportsInner() {
 
   return (
     <div className="space-y-6">
+      {/* ฟิลเตอร์ช่วงเวลา + ปุ่มรีเฟรช */}
       <div className="flex items-center gap-3 justify-end">
         <select
           className="rounded-xl border px-3 py-2 bg-white w-[200px]"
@@ -176,7 +179,7 @@ function ReportsInner() {
         </button>
       </div>
 
-      {/* ทำให้การ์ดกว้างขึ้น: 300px */}
+      {/* ทำให้การ์ดกว้างขึ้น: 300px เพื่อไม่ให้ตัวเลขโดนตัด */}
       <section className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
         <KpiCard title="ยอดขายรวม" value={`${fmt(kpi.total)} ฿`} icon={<BarChart2 className="h-7 w-7" />} accent="blue" />
         <KpiCard title="กำไรขั้นต้น" value={`${fmt(kpi.gross)} ฿`} icon={<PiggyBank className="h-7 w-7" />} accent="emerald" />
@@ -187,20 +190,27 @@ function ReportsInner() {
         <KpiCard title="กำไรสุทธิ" value={`${fmt(kpi.netProfit)} ฿`} icon={<Calculator className="h-7 w-7" />} accent="emerald" />
       </section>
 
+      {/* ตาราง + กราฟ */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card">
           <div className="card-body">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold mb-3">รายการล่าสุด</h3>
-              <button
-                onClick={() => {
-                  refSales();
-                  refAds();
-                }}
-                className="btn btn-light btn-sm"
-              >
-                โหลดซ้ำ
-              </button>
+              <div className="flex gap-2">
+                {/* ปุ่มรายละเอียด → หน้าใหม่ /reports/recent */}
+                <a href="/reports/recent" className="btn btn-dark btn-sm">
+                  รายละเอียด
+                </a>
+                <button
+                  onClick={() => {
+                    refSales();
+                    refAds();
+                  }}
+                  className="btn btn-light btn-sm"
+                >
+                  โหลดซ้ำ
+                </button>
+              </div>
             </div>
 
             {error && (
@@ -351,7 +361,7 @@ function KpiCard({
           <div className="text-slate-500 text-sm md:text-[15px] leading-tight">
             {title}
           </div>
-          {/* ฟอนต์ย่อ/ขยายอัตโนมัติ และไม่ตัดข้อความ */}
+          {/* ฟอนต์ยืดหยุ่นและไม่โดนตัด */}
           <div className="mt-1 font-semibold tracking-tight tabular-nums break-words text-[clamp(1.5rem,2.2vw,1.875rem)] leading-tight">
             {value}
           </div>
