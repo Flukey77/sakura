@@ -1,8 +1,8 @@
-// src/app/(app)/dashboard/page.tsx
 "use client";
 
 import { Suspense, useEffect, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import useSWR from "swr";
 import Shortcuts, { type ShortcutItem } from "@/app/components/Shortcuts";
 import { useToast } from "@/app/components/ToastProvider";
 
@@ -20,6 +20,9 @@ import {
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
+
+const fetcher = (url: string) =>
+  fetch(url, { cache: "no-store" }).then((r) => r.json());
 
 function DashboardContent() {
   const sp = useSearchParams();
@@ -53,6 +56,14 @@ function DashboardContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sp, pathname, router, toast]);
 
+  // จำนวนสินค้าใกล้หมด (ใช้โชว์จุดแดง + การ์ดแจ้งเตือน)
+  const { data: alerts } = useSWR<{ ok: boolean; count: number }>(
+    "/api/inventory/alerts/count",
+    fetcher,
+    { refreshInterval: 60_000, revalidateOnFocus: true, fallbackData: { ok: true, count: 0 } }
+  );
+  const lowStockCount = Number(alerts?.count ?? 0);
+
   const shortcutItems: ShortcutItem[] = useMemo(
     () => [
       { title: "รายงาน (Overview)", href: "/reports", icon: <BarChart3 />, desc: "ดูสรุปยอด, ROAS, กราฟรายวัน" },
@@ -67,8 +78,29 @@ function DashboardContent() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">ภาพรวม</h1>
-      {/* ลบข้อความ “ช่วงข้อมูล: …” ออกแล้ว */}
+      {/* หัวข้อ + จุดแดงกระพริบ เมื่อมีสินค้าใกล้หมด */}
+      <div className="flex items-center gap-2">
+        <h1 className="text-xl font-semibold">ภาพรวม</h1>
+        {lowStockCount > 0 && <span className="notif-dot" title="มีสินค้าใกล้หมด"></span>}
+      </div>
+
+      {/* การ์ดแจ้งเตือนสินค้าใกล้หมด (แสดงเมื่อ count > 0) */}
+      {lowStockCount > 0 && (
+        <div className="card p-4 sm:p-5 flex items-start gap-3 border-amber-300/60 bg-amber-50">
+          <span className="notif-dot mt-1.5"></span>
+          <div className="min-w-0">
+            <div className="font-medium text-slate-800">
+              สินค้าใกล้หมด {lowStockCount.toLocaleString()} รายการ
+            </div>
+            <div className="text-sm text-slate-600">
+              สต๊อกต่ำกว่า Safety Stock — ตรวจสอบและวางแผนสั่งซื้อเพิ่ม
+            </div>
+          </div>
+          <div className="ml-auto shrink-0">
+            <a href="/inventory/alerts" className="btn btn-dark">ไปยังการแจ้งเตือน</a>
+          </div>
+        </div>
+      )}
 
       {/* การ์ดสถิติ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
