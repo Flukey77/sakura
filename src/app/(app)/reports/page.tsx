@@ -1,4 +1,5 @@
-﻿"use client";
+﻿// src/app/(app)/reports/page.tsx
+"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -24,7 +25,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type Period = "today" | "7d" | "month" | "year";
+// เพิ่ม 3d และคง 7d / month / year ตามที่ต้องการ
+type Period = "3d" | "7d" | "month" | "year";
 
 type Sale = {
   id: string;
@@ -62,6 +64,7 @@ const fmt = (n: number) =>
 function ReportsInner() {
   const sp = useSearchParams();
   const router = useRouter();
+
   const urlPeriod = (sp.get("range") as Period) || "7d";
   const [period, setPeriod] = useState<Period>(urlPeriod);
 
@@ -76,26 +79,29 @@ function ReportsInner() {
     router.replace(`/reports?${params.toString()}`, { scroll: false });
   };
 
-  // สร้างช่วงวันที่
   const { from, to } = useMemo(() => {
     const now = new Date();
     const toStr = now.toISOString().slice(0, 10);
     const d = new Date(now);
 
-    if (period === "today") return { from: toStr, to: toStr };
+    if (period === "3d") {
+      // 3 วันล่าสุด = วันนี้และย้อนหลัง 2 วัน
+      d.setDate(now.getDate() - 2);
+      return { from: d.toISOString().slice(0, 10), to: toStr };
+    }
+    if (period === "7d") {
+      d.setDate(now.getDate() - 6);
+      return { from: d.toISOString().slice(0, 10), to: toStr };
+    }
     if (period === "month") {
       d.setDate(1);
       return { from: d.toISOString().slice(0, 10), to: toStr };
     }
-    if (period === "year") {
-      d.setMonth(0, 1);
-      return { from: d.toISOString().slice(0, 10), to: toStr };
-    }
-    d.setDate(now.getDate() - 6);
+    // year
+    d.setMonth(0, 1);
     return { from: d.toISOString().slice(0, 10), to: toStr };
   }, [period]);
 
-  // ขาย
   const {
     data: salesData,
     error: salesErr,
@@ -105,19 +111,19 @@ function ReportsInner() {
     revalidateOnFocus: false,
   });
 
-  // โฆษณา
   const {
     data: adsData,
     error: adsErr,
     isLoading: adsLoading,
     mutate: refAds,
-  } = useSWR<AdsSummaryRes>(`/api/ads/summary?from=${from}&to=${to}`, fetcher, {
-    revalidateOnFocus: false,
-  });
+  } = useSWR<AdsSummaryRes>(
+    `/api/ads/summary?from=${from}&to=${to}`,
+    fetcher,
+    { revalidateOnFocus: false }
+  );
 
   const sales = salesData?.sales ?? [];
 
-  // KPIs
   const kpi = useMemo(() => {
     const total = Number(salesData?.summary?.total || 0);
     const gross = Number(salesData?.summary?.gross || 0);
@@ -138,7 +144,6 @@ function ReportsInner() {
     return { total, gross, cogs, adTotal, netProfit, fbRevenue, ttRevenue };
   }, [salesData?.summary, sales, adsData?.totalCost]);
 
-  // Chart
   const chartData = useMemo(() => {
     const bucket = new Map<string, number>();
     for (const s of sales) {
@@ -153,19 +158,27 @@ function ReportsInner() {
   const loading = salesLoading || adsLoading;
   const error = salesErr || adsErr;
 
+  // ปุ่มลัดช่วงเวลาสำหรับกราฟ (และทั้งหน้า)
+  const rangeButtons: { key: Period; label: string }[] = [
+    { key: "3d", label: "3 วัน" },
+    { key: "7d", label: "7 วัน" },
+    { key: "month", label: "1 เดือน" },
+    { key: "year", label: "1 ปี" },
+  ];
+
   return (
     <div className="space-y-6">
-      {/* ฟิลเตอร์ช่วงเวลา + ปุ่มรีเฟรช */}
       <div className="flex items-center gap-3 justify-end">
+        {/* จะคง/จะลบ dropdown ก็ได้ ถ้าอยากให้มีเฉพาะปุ่มบนกราฟให้ตัดส่วนนี้ทิ้งได้ */}
         <select
           className="rounded-xl border px-3 py-2 bg-white w-[200px]"
           value={period}
           onChange={(e) => changePeriod(e.target.value as Period)}
         >
-          <option value="today">วันนี้</option>
-          <option value="7d">7 วันล่าสุด</option>
-          <option value="month">เดือนนี้</option>
-          <option value="year">ปีนี้</option>
+          <option value="3d">3 วัน</option>
+          <option value="7d">7 วัน</option>
+          <option value="month">1 เดือน</option>
+          <option value="year">1 ปี</option>
         </select>
         <button
           onClick={() => {
@@ -179,7 +192,7 @@ function ReportsInner() {
         </button>
       </div>
 
-      {/* ทำให้การ์ดกว้างขึ้น: 300px เพื่อไม่ให้ตัวเลขโดนตัด */}
+      {/* KPI cards */}
       <section className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
         <KpiCard title="ยอดขายรวม" value={`${fmt(kpi.total)} ฿`} icon={<BarChart2 className="h-7 w-7" />} accent="blue" />
         <KpiCard title="กำไรขั้นต้น" value={`${fmt(kpi.gross)} ฿`} icon={<PiggyBank className="h-7 w-7" />} accent="emerald" />
@@ -190,39 +203,24 @@ function ReportsInner() {
         <KpiCard title="กำไรสุทธิ" value={`${fmt(kpi.netProfit)} ฿`} icon={<Calculator className="h-7 w-7" />} accent="emerald" />
       </section>
 
-      {/* ตาราง + กราฟ */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* ตารางรายการล่าสุด */}
         <div className="card">
           <div className="card-body">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold mb-3">รายการล่าสุด</h3>
-              <div className="flex gap-2">
-                {/* ปุ่มรายละเอียด → หน้าใหม่ /reports/recent */}
-                <a href="/reports/recent" className="btn btn-dark btn-sm">
-                  รายละเอียด
-                </a>
-                <button
-                  onClick={() => {
-                    refSales();
-                    refAds();
-                  }}
-                  className="btn btn-light btn-sm"
-                >
-                  โหลดซ้ำ
-                </button>
-              </div>
+              <button
+                onClick={() => { refSales(); refAds(); }}
+                className="btn btn-light btn-sm"
+              >
+                โหลดซ้ำ
+              </button>
             </div>
 
             {error && (
               <div className="text-red-600">
                 {(error as any).message || "โหลดข้อมูลล้มเหลว"}
-                <button
-                  onClick={() => {
-                    refSales();
-                    refAds();
-                  }}
-                  className="btn btn-secondary ml-3"
-                >
+                <button onClick={() => { refSales(); refAds(); }} className="btn btn-secondary ml-3">
                   ลองอีกครั้ง
                 </button>
               </div>
@@ -233,13 +231,7 @@ function ReportsInner() {
             {!loading && !error && sales.length === 0 ? (
               <div className="py-8 text-slate-500">
                 ไม่มีข้อมูลในช่วงเวลานี้
-                <button
-                  onClick={() => {
-                    refSales();
-                    refAds();
-                  }}
-                  className="btn btn-secondary ml-3"
-                >
+                <button onClick={() => { refSales(); refAds(); }} className="btn btn-secondary ml-3">
                   รีเฟรช
                 </button>
               </div>
@@ -276,19 +268,33 @@ function ReportsInner() {
           </div>
         </div>
 
+        {/* กราฟยอดขายตามวัน + ปุ่มช่วงเวลา 3/7/เดือน/ปี */}
         <div className="card">
           <div className="card-body">
-            <h3 className="font-semibold mb-3">ยอดขายตามวัน</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">ยอดขายตามวัน</h3>
+              <div className="flex gap-1">
+                {rangeButtons.map((b) => (
+                  <button
+                    key={b.key}
+                    onClick={() => changePeriod(b.key)}
+                    className={`px-3 py-1.5 rounded-xl text-sm border
+                                ${period === b.key
+                                  ? "bg-slate-900 text-white border-slate-900"
+                                  : "bg-white text-slate-700 hover:bg-slate-50 border-slate-300"
+                                }`}
+                    aria-pressed={period === b.key}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {!chartData.length ? (
               <div className="py-8 text-slate-500">
                 ไม่มีข้อมูลกราฟ
-                <button
-                  onClick={() => {
-                    refSales();
-                    refAds();
-                  }}
-                  className="btn btn-secondary ml-3"
-                >
+                <button onClick={() => { refSales(); refAds(); }} className="btn btn-secondary ml-3">
                   รีเฟรช
                 </button>
               </div>
@@ -361,7 +367,6 @@ function KpiCard({
           <div className="text-slate-500 text-sm md:text-[15px] leading-tight">
             {title}
           </div>
-          {/* ฟอนต์ยืดหยุ่นและไม่โดนตัด */}
           <div className="mt-1 font-semibold tracking-tight tabular-nums break-words text-[clamp(1.5rem,2.2vw,1.875rem)] leading-tight">
             {value}
           </div>
