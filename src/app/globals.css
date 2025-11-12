@@ -78,7 +78,7 @@
 
   /* ---------- Shortcuts (การ์ดทางลัด – เอฟเฟกต์เด้ง + ดำตอน hover) ---------- */
   .shortcut {
-    @apply group flex items-start gap-4 rounded-2xl border border-slate-200 bg-white px-6 py-5
+    @apply flex items-start gap-4 rounded-2xl border border-slate-200 bg-white px-6 py-5
            transition-all duration-200 shadow-sm hover:-translate-y-0.5 hover:shadow-lg
            focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2;
   }
