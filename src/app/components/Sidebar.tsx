@@ -9,8 +9,12 @@ import useSWR from "swr";
 type Item = { href: string; label: string; emoji: string };
 
 function NavItem({
-  href, label, emoji, active, badgeCount,
-}: Item & { active: boolean; badgeCount?: number }) {
+  href,
+  label,
+  emoji,
+  active,
+  showDot,
+}: Item & { active: boolean; showDot?: boolean }) {
   return (
     <Link
       href={href}
@@ -22,16 +26,8 @@ function NavItem({
       <span aria-hidden className="text-base leading-none">{emoji}</span>
       <span className="truncate">{label}</span>
 
-      {/* badge นับจำนวนอยู่ขวาสุด เฉพาะเมื่อมี count */}
-      {badgeCount && badgeCount > 0 && (
-        <span
-          aria-label={`${label}: มี ${badgeCount} รายการ`}
-          className="ml-auto inline-flex min-w-[22px] h-[22px] items-center justify-center
-                     rounded-full bg-rose-600 px-1.5 text-[11px] font-semibold text-white"
-        >
-          {badgeCount}
-        </span>
-      )}
+      {/* จุดแดงกระพริบอยู่ด้านขวาสุดเมื่อมีการแจ้งเตือน */}
+      {showDot && <span className="ml-auto notif-dot" aria-label="มีการแจ้งเตือน" />}
     </Link>
   );
 }
@@ -48,17 +44,18 @@ export default function Sidebar() {
   const { data } = useSession();
   const role = (data?.user as any)?.role as "ADMIN" | "EMPLOYEE" | undefined;
 
-  // 👉 ดึงจำนวนสินค้าใกล้หมด เพื่อนำไปแสดง badge ที่เมนูแจ้งเตือนสต๊อก
+  // ดึงจำนวนสินค้าใกล้หมด เพื่อนำไปแสดงจุดแดงที่เมนูแจ้งเตือนสต๊อก
   const { data: alerts } = useSWR<{ ok: boolean; count: number }>(
     "/api/inventory/alerts/count",
     fetcher,
     {
-      refreshInterval: 60_000,   // รีเฟรชทุก 60 วิ (ปรับได้)
+      refreshInterval: 60_000,
       revalidateOnFocus: true,
       fallbackData: { ok: true, count: 0 },
     }
   );
   const alertCount = Number(alerts?.count ?? 0);
+  const hasLowStock = alertCount > 0;
 
   const main: Item[] = [
     { href: "/dashboard", label: "ภาพรวม",           emoji: "🏠" },
@@ -99,7 +96,8 @@ export default function Sidebar() {
             key={it.href}
             {...it}
             active={isActive(it.href)}
-            badgeCount={it.href === "/inventory/alerts" ? alertCount : undefined}
+            /* โชว์จุดแดงเฉพาะเมนูแจ้งเตือนสต๊อกและมีของใกล้หมดจริง */
+            showDot={it.href === "/inventory/alerts" ? hasLowStock : false}
           />
         ))}
       </div>

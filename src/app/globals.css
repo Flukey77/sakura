@@ -100,9 +100,32 @@
   .shortcut-title { @apply font-medium leading-6; }
   .shortcut-desc  { @apply text-sm text-slate-500; }
   .shortcut:hover .shortcut-desc { @apply text-slate-300; }
+
+  /* --- Dot badge (จุดแดงกระพริบใช้เป็นตัวแจ้งเตือน) --- */
+  .notif-dot {
+    @apply inline-block align-middle rounded-full bg-red-500;
+    width: 10px;
+    height: 10px;
+    position: relative;
+  }
+  .notif-dot::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: 9999px;
+    border: 2px solid rgb(239 68 68); /* red-500 */
+    animation: notif-ping 1.25s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
 }
 
 /* ---------- Utilities ---------- */
 @layer utilities {
   .container-safe { @apply mx-auto w-full max-w-[1200px] px-4 sm:px-6 lg:px-8; }
+}
+
+/* keyframes สำหรับวงกระพริบ */
+@keyframes notif-ping {
+  0%   { transform: scale(0.6); opacity: 0.9; }
+  80%  { transform: scale(1.6); opacity: 0; }
+  100% { opacity: 0; }
 }
