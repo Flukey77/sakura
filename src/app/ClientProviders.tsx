@@ -1,8 +1,17 @@
+// src/app/components/ConfirmProvider.tsx
 "use client";
 
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-type Ctx = {
+// ---- types ----
+type ConfirmAPI = {
   confirm: (opts: {
     title?: string;
     message?: React.ReactNode;
@@ -12,7 +21,8 @@ type Ctx = {
   }) => Promise<boolean>;
 };
 
-const Ctx = createContext<Ctx | null>(null);
+// context (อย่าตั้งชื่อชนกับ type)
+const ConfirmContext = createContext<ConfirmAPI | null>(null);
 
 export default function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [queue, setQueue] = useState<
@@ -29,32 +39,22 @@ export default function ConfirmProvider({ children }: { children: React.ReactNod
   >([]);
   const idRef = useRef(1);
 
-  const confirm = useCallback(
-    (opts: {
-      title?: string;
-      message?: React.ReactNode;
-      okText?: string;
-      cancelText?: string;
-      danger?: boolean;
-    }) => {
-      // ถ้าไม่มี window (SSR) ให้ fallback อนุญาตไปก่อน จะได้ไม่พัง
-      if (typeof window === "undefined") return Promise.resolve(true);
+  const confirm = useCallback<ConfirmAPI["confirm"]>((opts) => {
+    // ถ้ารันฝั่ง server ให้อนุญาตไปก่อนกันพัง
+    if (typeof window === "undefined") return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      setQueue((q) => [
+        ...q,
+        {
+          id: idRef.current++,
+          resolve,
+          ...opts,
+        },
+      ]);
+    });
+  }, []);
 
-      return new Promise<boolean>((resolve) => {
-        setQueue((q) => [
-          ...q,
-          {
-            id: idRef.current++,
-            resolve,
-            ...opts,
-          },
-        ]);
-      });
-    },
-    []
-  );
-
-  const api = useMemo<Ctx>(() => ({ confirm }), [confirm]);
+  const api = useMemo<ConfirmAPI>(() => ({ confirm }), [confirm]);
 
   const close = (id: number, ok: boolean) => {
     setQueue((q) => {
@@ -65,10 +65,10 @@ export default function ConfirmProvider({ children }: { children: React.ReactNod
   };
 
   return (
-    <Ctx.Provider value={api}>
+    <ConfirmContext.Provider value={api}>
       {children}
 
-      {/* Modal stack */}
+      {/* modal stack */}
       {queue.map((d) => (
         <div
           key={d.id}
@@ -97,13 +97,13 @@ export default function ConfirmProvider({ children }: { children: React.ReactNod
           </div>
         </div>
       ))}
-    </Ctx.Provider>
+    </ConfirmContext.Provider>
   );
 }
 
 export function useConfirm() {
-  const ctx = useContext(Ctx);
-  // FALLBACK: ถ้าเผลอเรียกนอก Provider ให้ใช้ window.confirm แทน (จะไม่พังหน้า)
+  const ctx = useContext(ConfirmContext);
+  // fallback กันพังหากลืมห่อ Provider (จะใช้ window.confirm)
   if (!ctx) {
     return {
       confirm: async (o: {
@@ -114,13 +114,12 @@ export function useConfirm() {
         danger?: boolean;
       }) => {
         if (typeof window === "undefined") return true;
-        // แปลง message เป็น string คร่าว ๆ
         const msg =
           (o.title ? o.title + "\n" : "") +
           (typeof o.message === "string" ? o.message : "");
         return window.confirm(msg || "ยืนยันการทำรายการ?");
       },
-    };
+    } as ConfirmAPI;
   }
   return ctx;
 }
