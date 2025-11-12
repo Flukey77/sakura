@@ -2,7 +2,6 @@
 import type { ReactNode } from "react";
 import Sidebar from "@/app/components/Sidebar";
 import Header from "./_components/Header";
-import { MobileTopBar, MobileTabBar } from "@/app/components/MobileNav";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Sakura" };
@@ -16,21 +15,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* แถบบนเฉพาะมือถือ */}
-        <MobileTopBar />
-
-        {/* เดสก์ท็อปเฮดเดอร์ */}
+        {/* เฮดเดอร์เดสก์ท็อป (มือถือจะไม่เห็นอยู่แล้ว) */}
         <div className="hidden md:block">
           <Header />
         </div>
 
-        {/* เผื่อพื้นที่ให้แถบล่างบนมือถือ (pb-16) */}
-        <main className="flex-1 mx-auto w-full max-w-[1400px] px-3 sm:px-4 py-6 pb-16 overflow-x-hidden">
+        {/* เนื้อหา – เอา pb-16 (เผื่อพื้นที่แท็บล่าง) ออก */}
+        <main className="flex-1 mx-auto w/full max-w-[1400px] px-3 sm:px-4 py-6 overflow-x-hidden">
           {children}
         </main>
-
-        {/* แถบนำทางล่างเฉพาะมือถือ */}
-        <MobileTabBar />
       </div>
     </div>
   );
