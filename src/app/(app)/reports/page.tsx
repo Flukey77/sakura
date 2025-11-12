@@ -1,4 +1,5 @@
-﻿"use client";
+﻿// src/app/(app)/reports/page.tsx
+"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -45,7 +46,7 @@ type SalesRes = {
 type AdsSummaryRes = {
   ok: boolean;
   totalCost: number;
-  byChannel: Record<string, number>; // { FACEBOOK: number, TIKTOK: number }
+  byChannel: Record<string, number>;
   message?: string;
 };
 
@@ -76,7 +77,6 @@ function ReportsInner() {
     router.replace(`/reports?${params.toString()}`, { scroll: false });
   };
 
-  // คำนวณช่วงวันที่
   const { from, to } = useMemo(() => {
     const now = new Date();
     const toStr = now.toISOString().slice(0, 10);
@@ -95,19 +95,15 @@ function ReportsInner() {
     return { from: d.toISOString().slice(0, 10), to: toStr };
   }, [period]);
 
-  // ดึงข้อมูลยอดขาย
   const {
     data: salesData,
     error: salesErr,
     isLoading: salesLoading,
     mutate: refSales,
-  } = useSWR<SalesRes>(
-    `/api/sales?status=ALL&from=${from}&to=${to}`,
-    fetcher,
-    { revalidateOnFocus: false }
-  );
+  } = useSWR<SalesRes>(`/api/sales?status=ALL&from=${from}&to=${to}`, fetcher, {
+    revalidateOnFocus: false,
+  });
 
-  // ดึงสรุปค่าโฆษณารวม
   const {
     data: adsData,
     error: adsErr,
@@ -120,9 +116,7 @@ function ReportsInner() {
   );
 
   const sales = salesData?.sales ?? [];
-  const byChannel = adsData?.byChannel ?? {};
 
-  // KPI รวม
   const kpi = useMemo(() => {
     const total = Number(salesData?.summary?.total || 0);
     const gross = Number(salesData?.summary?.gross || 0);
@@ -140,18 +134,9 @@ function ReportsInner() {
     const adTotal = Number(adsData?.totalCost || 0);
     const netProfit = gross - adTotal;
 
-    return {
-      total,
-      gross,
-      cogs,
-      adTotal,
-      netProfit,
-      fbRevenue,
-      ttRevenue,
-    };
+    return { total, gross, cogs, adTotal, netProfit, fbRevenue, ttRevenue };
   }, [salesData?.summary, sales, adsData?.totalCost]);
 
-  // ข้อมูลกราฟ
   const chartData = useMemo(() => {
     const bucket = new Map<string, number>();
     for (const s of sales) {
@@ -168,13 +153,11 @@ function ReportsInner() {
 
   return (
     <div className="space-y-6">
-      {/* ตัวกรองช่วงเวลา */}
       <div className="flex items-center gap-3 justify-end">
         <select
           className="rounded-xl border px-3 py-2 bg-white w-[200px]"
           value={period}
           onChange={(e) => changePeriod(e.target.value as Period)}
-          aria-label="ช่วงเวลา"
         >
           <option value="today">วันนี้</option>
           <option value="7d">7 วันล่าสุด</option>
@@ -193,53 +176,17 @@ function ReportsInner() {
         </button>
       </div>
 
-      {/* KPI หลัก — โล่งขึ้น และการ์ดจะขยายอัตโนมัติ */}
-      <section className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
-        <KpiCard
-          title="ยอดขายรวม"
-          value={`${fmt(kpi.total)} ฿`}
-          icon={<BarChart2 className="h-7 w-7" />}
-          accent="blue"
-        />
-        <KpiCard
-          title="กำไรขั้นต้น"
-          value={`${fmt(kpi.gross)} ฿`}
-          icon={<PiggyBank className="h-7 w-7" />}
-          accent="emerald"
-        />
-        <KpiCard
-          title="ต้นทุนขาย (COGS)"
-          value={`${fmt(kpi.cogs)} ฿`}
-          icon={<PackageSearch className="h-7 w-7" />}
-          accent="slate"
-        />
-        <KpiCard
-          title="ยอดขาย Facebook"
-          value={`${fmt(kpi.fbRevenue)} ฿`}
-          icon={<FacebookIcon className="h-7 w-7" />}
-          accent="indigo"
-        />
-        <KpiCard
-          title="ยอดขาย TikTok"
-          value={`${fmt(kpi.ttRevenue)} ฿`}
-          icon={<TikTokIcon className="h-7 w-7" />}
-          accent="pink"
-        />
-        <KpiCard
-          title="ค่าโฆษณารวม"
-          value={`${fmt(kpi.adTotal)} ฿`}
-          icon={<Coins className="h-7 w-7" />}
-          accent="slate"
-        />
-        <KpiCard
-          title="กำไรสุทธิ"
-          value={`${fmt(kpi.netProfit)} ฿`}
-          icon={<Calculator className="h-7 w-7" />}
-          accent="emerald"
-        />
+      {/* ทำให้การ์ดกว้างขึ้น: 300px */}
+      <section className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
+        <KpiCard title="ยอดขายรวม" value={`${fmt(kpi.total)} ฿`} icon={<BarChart2 className="h-7 w-7" />} accent="blue" />
+        <KpiCard title="กำไรขั้นต้น" value={`${fmt(kpi.gross)} ฿`} icon={<PiggyBank className="h-7 w-7" />} accent="emerald" />
+        <KpiCard title="ต้นทุนขาย (COGS)" value={`${fmt(kpi.cogs)} ฿`} icon={<PackageSearch className="h-7 w-7" />} accent="slate" />
+        <KpiCard title="ยอดขาย Facebook" value={`${fmt(kpi.fbRevenue)} ฿`} icon={<FacebookIcon className="h-7 w-7" />} accent="indigo" />
+        <KpiCard title="ยอดขาย TikTok" value={`${fmt(kpi.ttRevenue)} ฿`} icon={<TikTokIcon className="h-7 w-7" />} accent="pink" />
+        <KpiCard title="ค่าโฆษณารวม" value={`${fmt(kpi.adTotal)} ฿`} icon={<Coins className="h-7 w-7" />} accent="slate" />
+        <KpiCard title="กำไรสุทธิ" value={`${fmt(kpi.netProfit)} ฿`} icon={<Calculator className="h-7 w-7" />} accent="emerald" />
       </section>
 
-      {/* ตาราง + กราฟ */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card">
           <div className="card-body">
@@ -379,7 +326,6 @@ function KpiCard({
   title: string;
   value: string;
   icon: React.ReactNode;
-  /** tailwind สีหลัก: blue | emerald | slate | indigo | pink */
   accent?: "blue" | "emerald" | "slate" | "indigo" | "pink";
 }) {
   const ring =
@@ -405,7 +351,8 @@ function KpiCard({
           <div className="text-slate-500 text-sm md:text-[15px] leading-tight">
             {title}
           </div>
-          <div className="mt-1 text-2xl md:text-3xl font-semibold tracking-tight tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">
+          {/* ฟอนต์ย่อ/ขยายอัตโนมัติ และไม่ตัดข้อความ */}
+          <div className="mt-1 font-semibold tracking-tight tabular-nums break-words text-[clamp(1.5rem,2.2vw,1.875rem)] leading-tight">
             {value}
           </div>
         </div>
