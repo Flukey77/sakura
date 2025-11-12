@@ -3,7 +3,6 @@ import "@/app/globals.css";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import ClientProviders from "@/app/ClientProviders";
-import { ConfirmProvider } from "@/app/components/ConfirmProvider";
 
 export const metadata: Metadata = {
   title: "Sakura",
@@ -25,9 +24,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="th" suppressHydrationWarning className="h-full">
       <body className="min-h-screen h-full bg-slate-50 overflow-x-hidden touch-manipulation">
-        <ConfirmProvider>
-          <ClientProviders>{children}</ClientProviders>
-        </ConfirmProvider>
+        <ClientProviders>{children}</ClientProviders>
       </body>
     </html>
   );

@@ -1,11 +1,11 @@
-"use client";
+// src/app/ClientProviders.tsx
+'use client';
 
-import type { ReactNode } from "react";
-import { SessionProvider } from "next-auth/react";
-import ToastProvider from "@/app/components/ToastProvider";
-import ConfirmProvider from "@/app/components/ConfirmProvider";
+import { SessionProvider } from 'next-auth/react';
+import ToastProvider from '@/app/components/ToastProvider';
+import ConfirmProvider from '@/app/components/ConfirmProvider';
 
-export default function ClientProviders({ children }: { children: ReactNode }) {
+export default function ClientProviders({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider>
       <ToastProvider>
