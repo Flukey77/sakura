@@ -1,5 +1,4 @@
-﻿// src/app/api/sales/route.ts
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
@@ -97,7 +96,7 @@ export async function POST(req: Request) {
 
     const channel: string | null = body.channel ?? null;
 
-    // ---- customer (ยกมาจากของเดิม) ----
+    // ---- customer (หา/สร้าง) ----
     const name = (body.customer?.name ? String(body.customer.name) : "").trim();
     const phone = (body.customer?.phone ? String(body.customer.phone) : "").trim() || undefined;
     const email = (body.customer?.email ? String(body.customer.email) : "").trim() || undefined;
@@ -108,9 +107,7 @@ export async function POST(req: Request) {
     let customerName: string | null = null;
 
     if (body.customer?.id) {
-      const byId = await prisma.customer.findUnique({
-        where: { id: String(body.customer.id) },
-      });
+      const byId = await prisma.customer.findUnique({ where: { id: String(body.customer.id) } });
       if (byId) {
         if (address && !byId.address) {
           await prisma.customer.update({ where: { id: byId.id }, data: { address } });
@@ -132,13 +129,7 @@ export async function POST(req: Request) {
         customerName = existed.name;
       } else if (name || phone || email) {
         const created = await prisma.customer.create({
-          data: {
-            name: name || phone || email || "CUSTOMER",
-            phone,
-            email,
-            address,
-            tags: [],
-          },
+          data: { name: name || phone || email || "CUSTOMER", phone, email, address, tags: [] },
           select: { id: true, name: true },
         });
         customerId = created.id;
@@ -237,10 +228,7 @@ export async function POST(req: Request) {
 
           await Promise.all(
             linePayload.map((x) =>
-              tx.product.update({
-                where: { id: x.productId },
-                data: { stock: { decrement: x.qty } },
-              })
+              tx.product.update({ where: { id: x.productId }, data: { stock: { decrement: x.qty } } })
             )
           );
 
@@ -342,12 +330,10 @@ export async function GET(req: Request) {
     if (baseAnd.length) baseWhere.AND = baseAnd;
     if (baseOr.length) baseWhere.OR = baseOr;
 
-    // where สำหรับตาราง
+    // where ตาราง
     let where: Prisma.SaleWhereInput = { ...baseWhere, deletedAt: null };
     if (statusParam === "DELETED") {
-      if (!isAdmin) {
-        return NextResponse.json({ ok: false, message: "forbidden" }, { status: 403 });
-      }
+      if (!isAdmin) return NextResponse.json({ ok: false, message: "forbidden" }, { status: 403 });
       where = { ...baseWhere, NOT: { deletedAt: null } };
     } else if (statusParam !== "ALL") {
       where = { ...where, status: statusParam };
@@ -401,7 +387,7 @@ export async function GET(req: Request) {
       deletedAt: r.deletedAt,
     }));
 
-    // summary ไม่รวม CANCELLED & DELETED เมื่อ status=ALL
+    // summary
     let summaryWhere: Prisma.SaleWhereInput = { ...baseWhere, deletedAt: null };
     if (statusParam !== "ALL" && statusParam !== "DELETED") summaryWhere = { ...summaryWhere, status: statusParam };
     if (statusParam === "ALL") summaryWhere = { ...summaryWhere, NOT: { status: "CANCELLED" } };

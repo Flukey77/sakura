@@ -1,5 +1,4 @@
-﻿// src/app/(app)/sales/page.tsx
-"use client";
+﻿"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -29,6 +28,7 @@ type ApiRes = {
   message?: string;
 };
 
+// ป้ายสถานะภาษาไทย + สี
 const TH_STATUS: Record<string, { label: string; cls: string }> = {
   NEW: { label: "รอโอน", cls: "bg-amber-100 text-amber-700" },
   PENDING: { label: "รอชำระ", cls: "bg-orange-100 text-orange-700" },
@@ -44,6 +44,7 @@ function Pill({ status }: { status: string }) {
 const fmtBaht = (n: number) =>
   (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// แท็บด้านบน
 const BASE_TABS = [
   { key: "ALL", label: "ทั้งหมด" },
   { key: "NEW", label: "รอโอน" },
@@ -51,6 +52,14 @@ const BASE_TABS = [
   { key: "CONFIRMED", label: "ยืนยันแล้ว" },
   { key: "CANCELLED", label: "ยกเลิก" },
 ] as const;
+
+// ตัวเลือกสถานะใน <select>
+const STATUS_OPTIONS: { value: "NEW" | "PENDING" | "CONFIRMED" | "CANCELLED"; label: string }[] = [
+  { value: "NEW", label: TH_STATUS.NEW.label },
+  { value: "PENDING", label: TH_STATUS.PENDING.label },
+  { value: "CONFIRMED", label: TH_STATUS.CONFIRMED.label },
+  { value: "CANCELLED", label: TH_STATUS.CANCELLED.label },
+];
 
 function PageBtn({
   active,
@@ -146,8 +155,8 @@ function SalesContent() {
     router.push(`/sales?${params.toString()}`);
   };
 
+  // PATCH เปลี่ยนสถานะ
   const changeStatus = async (id: string, status: string) => {
-    if (!confirm(`ยืนยันเปลี่ยนสถานะเป็น "${TH_STATUS[status]?.label || status}" ?`)) return;
     setBusy(true);
     try {
       const res = await fetch(`/api/sales/${id}`, {
@@ -155,8 +164,8 @@ function SalesContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j?.message || "อัปเดตไม่สำเร็จ");
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || j?.ok === false) throw new Error(j?.message || "อัปเดตไม่สำเร็จ");
       await load();
     } catch (e: any) {
       alert(e?.message || "อัปเดตไม่สำเร็จ");
@@ -165,6 +174,7 @@ function SalesContent() {
     }
   };
 
+  // ลบ (soft delete)
   const deleteSale = async (id: string, docNo: string) => {
     if (!confirm(`ลบออเดอร์ ${docNo} ? (จะย้ายไปแท็บ "ลบแล้ว")`)) return;
     setBusy(true);
@@ -312,61 +322,69 @@ function SalesContent() {
               </tr>
             )}
 
-            {sales.map((s) => (
-              <tr key={s.id} className="border-t">
-                <td className="py-2 px-4">{new Date(s.date).toLocaleDateString("th-TH")}</td>
-                <td className="py-2 px-4">
-                  <SalesDocLink id={s.id} docNo={s.docNo} />
-                </td>
-                <td className="py-2 px-4">{s.customer || "-"}</td>
-                <td className="py-2 px-4">{s.channel || "-"}</td>
-                <td className="py-2 px-4">฿{fmtBaht(Number(s.total || 0))}</td>
-                <td className="py-2 px-4">
-                  <Pill status={(s.status || "NEW").toUpperCase()} />
-                </td>
-                <td className="py-2 px-4">
-                  <div className="flex gap-2 justify-end">
-                    {/* หากยังไม่ถูกลบ แสดงปุ่มสถานะ + ลบ (สำหรับแอดมิน) */}
-                    {!s.deletedAt && tab !== "DELETED" ? (
-                      <>
-                        <button
-                          className="rounded-lg border px-3 py-1 hover:bg-slate-50"
-                          onClick={() => changeStatus(s.id, "PENDING")}
-                          disabled={busy}
-                        >
-                          ทำเป็นรอชำระ
-                        </button>
-                        <button
-                          className="rounded-lg border px-3 py-1 hover:bg-slate-50"
-                          onClick={() => changeStatus(s.id, "CONFIRMED")}
-                          disabled={busy}
-                        >
-                          ทำเป็นยืนยันแล้ว
-                        </button>
-                        <button
-                          className="rounded-lg border px-3 py-1 hover:bg-red-50 text-red-600"
-                          onClick={() => changeStatus(s.id, "CANCELLED")}
-                          disabled={busy}
-                        >
-                          ยกเลิก
-                        </button>
-                        {data?.isAdmin && (
-                          <button
-                            className="rounded-lg border px-3 py-1 hover:bg-rose-50 text-rose-600"
-                            onClick={() => deleteSale(s.id, s.docNo)}
-                            disabled={busy}
-                          >
-                            ลบ
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <span className="text-slate-500 text-xs italic">ถูกลบแล้ว</span>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {sales.map((s) => {
+              const current = (s.status || "NEW").toUpperCase() as
+                | "NEW"
+                | "PENDING"
+                | "CONFIRMED"
+                | "CANCELLED";
+              return (
+                <tr key={s.id} className="border-t">
+                  <td className="py-2 px-4">{new Date(s.date).toLocaleDateString("th-TH")}</td>
+                  <td className="py-2 px-4">
+                    <SalesDocLink id={s.id} docNo={s.docNo} />
+                  </td>
+                  <td className="py-2 px-4">{s.customer || "-"}</td>
+                  <td className="py-2 px-4">{s.channel || "-"}</td>
+                  <td className="py-2 px-4">฿{fmtBaht(Number(s.total || 0))}</td>
+                  <td className="py-2 px-4">
+                    <Pill status={current} />
+                  </td>
+                  <td className="py-2 px-4">
+                    <div className="flex gap-2 justify-end items-center">
+                      {/* ถ้ายังไม่ถูกลบ และไม่ใช่แท็บ DELETED */}
+                      {!s.deletedAt && tab !== "DELETED" ? (
+                        <>
+                          {/* แสดง select ให้เฉพาะแอดมิน */}
+                          {data?.isAdmin ? (
+                            <select
+                              className="rounded-xl border px-3 py-1 bg-white focus:outline-none"
+                              value={current}
+                              disabled={busy}
+                              onChange={(e) =>
+                                changeStatus(s.id, (e.target.value || "").toUpperCase())
+                              }
+                              title="เปลี่ยนสถานะ"
+                            >
+                              {STATUS_OPTIONS.map((op) => (
+                                <option key={op.value} value={op.value}>
+                                  {op.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-slate-500 text-xs">ไม่มีสิทธิ์เปลี่ยนสถานะ</span>
+                          )}
+
+                          {/* ปุ่มลบให้แอดมิน */}
+                          {data?.isAdmin && (
+                            <button
+                              className="rounded-lg border px-3 py-1 hover:bg-rose-50 text-rose-600"
+                              onClick={() => deleteSale(s.id, s.docNo)}
+                              disabled={busy}
+                            >
+                              ลบ
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-slate-500 text-xs italic">ถูกลบแล้ว</span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
 
             {loading &&
               Array.from({ length: 5 }).map((_, i) => (
