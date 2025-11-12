@@ -14,7 +14,7 @@ function r2(v: unknown) {
 }
 
 async function fetchSale(idOrDocNo: string) {
-  // ไม่ใส่ select scalar เพื่อให้ Prisma คืนทุก scalar field (รวม deletedAt/deletedBy)
+  // ไม่ใส่ select scalar → Prisma จะคืน scalar fields ทั้งหมด (รวม deletedAt/deletedBy)
   return prisma.sale.findFirst({
     where: { OR: [{ id: idOrDocNo }, { docNo: idOrDocNo }] },
     include: {
@@ -89,7 +89,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   }
 }
 
-/* ========= PATCH /api/sales/[idOrDocNo] (เปลี่ยนสถานะ) ========= */
+/* ========= PATCH /api/sales/[idOrDocNo] ========= */
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
     const idOrDoc = decodeURIComponent(params?.id ?? "");
@@ -99,7 +99,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     const body = await req.json().catch(() => ({}));
     const nextStatus = String(body?.status || "").toUpperCase();
-
     const ALLOW = new Set(["NEW", "PENDING", "CONFIRMED", "CANCELLED"]);
     if (!ALLOW.has(nextStatus)) {
       return NextResponse.json({ ok: false, message: "invalid status" }, { status: 400 });
@@ -109,9 +108,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       where: { OR: [{ id: idOrDoc }, { docNo: idOrDoc }] },
       select: { id: true, deletedAt: true },
     });
-    if (!target) {
-      return NextResponse.json({ ok: false, message: "not found" }, { status: 404 });
-    }
+    if (!target) return NextResponse.json({ ok: false, message: "not found" }, { status: 404 });
     if (target.deletedAt) {
       return NextResponse.json({ ok: false, message: "เอกสารถูกลบแล้ว" }, { status: 400 });
     }
@@ -129,14 +126,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 }
 
-/* ========= DELETE /api/sales/[idOrDocNo] (Soft delete) ========= */
+/* ========= DELETE /api/sales/[idOrDocNo] (Soft delete + คืนสต๊อก) ========= */
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions);
     const role = (session?.user as any)?.role as string | undefined;
     const userId = (session?.user as any)?.id as string | undefined;
-    if (!userId || role !== "ADMIN") {
-      return NextResponse.json({ ok: false, message: "forbidden" }, { status: 403 });
+
+    if (!userId) return NextResponse.json({ ok: false, message: "unauthorized" }, { status: 401 });
+    if (role !== "ADMIN") {
+      return NextResponse.json({ ok: false, message: "forbidden: admin only" }, { status: 403 });
     }
 
     const idOrDoc = decodeURIComponent(params?.id ?? "");
@@ -144,22 +143,36 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
       return NextResponse.json({ ok: false, message: "missing id" }, { status: 400 });
     }
 
+    // ต้องโหลด items เพื่อคืน stock
     const target = await prisma.sale.findFirst({
       where: { OR: [{ id: idOrDoc }, { docNo: idOrDoc }] },
-      select: { id: true, deletedAt: true },
+      include: { items: { select: { productId: true, qty: true } } },
     });
     if (!target) return NextResponse.json({ ok: false, message: "not found" }, { status: 404 });
     if (target.deletedAt) {
       return NextResponse.json({ ok: true, message: "already deleted" });
     }
 
-    await prisma.sale.update({
-      where: { id: target.id },
-      data: { deletedAt: new Date(), deletedBy: userId },
-      select: { id: true },
+    const deleted = await prisma.$transaction(async (tx) => {
+      // soft delete
+      await tx.sale.update({
+        where: { id: target.id },
+        data: { deletedAt: new Date(), deletedBy: userId },
+      });
+      // คืน stock (ยกเลิกเอกสาร)
+      for (const it of target.items) {
+        await tx.product.update({
+          where: { id: it.productId },
+          data: { stock: { increment: it.qty } },
+        });
+      }
+      return tx.sale.findUnique({
+        where: { id: target.id },
+        select: { id: true, docNo: true, deletedAt: true },
+      });
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, sale: deleted });
   } catch (err: any) {
     console.error("DELETE /api/sales/[id] error:", err);
     return NextResponse.json({ ok: false, message: err?.message ?? "delete failed" }, { status: 500 });
