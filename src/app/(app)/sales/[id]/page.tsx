@@ -1,8 +1,8 @@
-// src/app/(app)/sales/[id]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
+import { useConfirm } from "@/app/components/ConfirmProvider";
 
 type Item = {
   id: number;
@@ -38,6 +38,8 @@ const fmtBaht = (n: number) =>
 export default function SaleDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
+  const confirm = useConfirm();
+
   const [data, setData] = useState<SaleDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -64,11 +66,27 @@ export default function SaleDetailPage() {
 
   const tryRestore = async (force = false) => {
     if (!data) return;
-    const label = force ? "กู้คืนแบบยอมให้สต็อกติดลบ" : "กู้คืนเอกสาร";
-    if (
-      !confirm(`${label} ${data.docNo} ?${force ? "\n\nสต็อกสินค้าบางตัวจะติดลบ" : ""}`)
-    )
-      return;
+    const ok = await confirm({
+      title: force ? "กู้คืน (ยอมให้สต๊อกติดลบ)" : "กู้คืนเอกสาร",
+      message: (
+        <div>
+          {force ? (
+            <>
+              ต้องการ <b>กู้คืนแบบยอมให้สต๊อกติดลบ</b> สำหรับ{" "}
+              <span className="font-medium">{data.docNo}</span> หรือไม่?
+            </>
+          ) : (
+            <>
+              ต้องการกู้คืนเอกสาร <span className="font-medium">{data.docNo}</span> หรือไม่?
+            </>
+          )}
+        </div>
+      ),
+      okText: "ตกลง",
+      cancelText: "ยกเลิก",
+      danger: force,
+    });
+    if (!ok) return;
 
     setBusy(true);
     try {
@@ -80,18 +98,24 @@ export default function SaleDetailPage() {
       const j = await res.json().catch(() => ({}));
 
       if (!res.ok || j?.ok === false) {
-        // ถ้าสต็อกไม่พอ: แสดงรายละเอียด แล้วถามว่าจะ force ไหม
+        // ถ้าสต๊อกไม่พอ: แสดงรายละเอียด แล้วถามว่าจะ force ไหม
         if (j?.code === "INSUFFICIENT_STOCK" && Array.isArray(j?.problems)) {
           const lines = (j.problems as any[])
-            .map((p) => `• ${p.code} (${p.name}) คงเหลือ ${p.remain}, ต้องการ ${p.need}`)
+            .map((p: any) => `• ${p.code} (${p.name}) คงเหลือ ${p.remain}, ต้องการ ${p.need}`)
             .join("\n");
-          if (
-            confirm(
-              `สต็อกไม่พอสำหรับกู้คืน:\n\n${lines}\n\nต้องการกู้คืนแบบยอมให้สต็อกติดลบหรือไม่?`
-            )
-          ) {
-            await tryRestore(true);
-          }
+          const okForce = await confirm({
+            title: "สต๊อกไม่เพียงพอ",
+            message: (
+              <div className="whitespace-pre-wrap">
+                {lines}
+                {"\n\n"}ต้องการกู้คืนแบบยอมให้สต๊อกติดลบหรือไม่?
+              </div>
+            ),
+            okText: "กู้คืนแบบ Force",
+            cancelText: "ยกเลิก",
+            danger: true,
+          });
+          if (okForce) await tryRestore(true);
           return;
         }
 

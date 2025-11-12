@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useConfirm } from "@/app/components/ConfirmProvider";
 
 type Role = "ADMIN" | "EMPLOYEE";
 
@@ -27,6 +28,7 @@ type ApiRes = {
 
 export default function ProductsPage() {
   const { data: session } = useSession();
+  const confirm = useConfirm();
   const role = (session?.user as any)?.role as Role | undefined;
   const canEdit = role === "ADMIN";
 
@@ -89,7 +91,10 @@ export default function ProductsPage() {
       });
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok) {
-        const msg = res.status === 403 ? "คุณไม่มีสิทธิ์เพิ่มสินค้า (ต้องเป็นผู้ดูแลระบบ)" : (j?.error || j?.message || "เพิ่มไม่สำเร็จ");
+        const msg =
+          res.status === 403
+            ? "คุณไม่มีสิทธิ์เพิ่มสินค้า (ต้องเป็นผู้ดูแลระบบ)"
+            : j?.error || j?.message || "เพิ่มไม่สำเร็จ";
         throw new Error(msg);
       }
       setForm({ code: "", name: "", cost: "", price: "", stock: 0 });
@@ -104,7 +109,19 @@ export default function ProductsPage() {
 
   async function deleteProduct(id: number, displayName: string) {
     if (!requireAdminGuard()) return;
-    if (!confirm(`ต้องการลบสินค้า "${displayName}" หรือไม่?`)) return;
+
+    const ok = await confirm({
+      title: "ลบสินค้า",
+      message: (
+        <div>
+          ต้องการลบสินค้า <span className="font-medium">"{displayName}"</span> หรือไม่?
+        </div>
+      ),
+      okText: "ลบ",
+      cancelText: "ยกเลิก",
+      danger: true,
+    });
+    if (!ok) return;
 
     const key = String(id);
     setBusyKey(key);
@@ -112,7 +129,10 @@ export default function ProductsPage() {
       const res = await fetch(`/api/products/${id}`, { method: "DELETE" });
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok) {
-        const msg = res.status === 403 ? "คุณไม่มีสิทธิ์ลบสินค้า (ต้องเป็นผู้ดูแลระบบ)" : (j?.error || j?.message || "ลบไม่สำเร็จ");
+        const msg =
+          res.status === 403
+            ? "คุณไม่มีสิทธิ์ลบสินค้า (ต้องเป็นผู้ดูแลระบบ)"
+            : j?.error || j?.message || "ลบไม่สำเร็จ";
         alert(msg);
         return;
       }
@@ -153,7 +173,10 @@ export default function ProductsPage() {
       });
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok) {
-        const msg = res.status === 403 ? "คุณไม่มีสิทธิ์บันทึกข้อมูล (ต้องเป็นผู้ดูแลระบบ)" : (j?.error || "บันทึกไม่สำเร็จ");
+        const msg =
+          res.status === 403
+            ? "คุณไม่มีสิทธิ์บันทึกข้อมูล (ต้องเป็นผู้ดูแลระบบ)"
+            : j?.error || "บันทึกไม่สำเร็จ";
         alert(msg);
         return;
       }

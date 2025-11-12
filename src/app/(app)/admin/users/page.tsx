@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useMemo, useState } from "react";
 import useSWR from "swr";
 import { useSession } from "next-auth/react";
+import { useConfirm } from "@/app/components/ConfirmProvider";
 
 type Role = "ADMIN" | "EMPLOYEE";
 type UserRow = { id: string; username: string; name: string | null; role: Role; createdAt: string; };
@@ -16,6 +17,7 @@ const fetcher = async (url: string): Promise<UserRow[]> => {
 
 export default function AdminUsersPage() {
   const { data: session } = useSession();
+  const confirm = useConfirm();
   const selfId: string | null = ((session?.user as any)?.id as string) ?? null;
 
   const { data, isLoading, mutate, error, isValidating } =
@@ -58,7 +60,14 @@ export default function AdminUsersPage() {
   }
 
   async function updateRole(id: string, role: Role) {
-    if (!confirm(`เปลี่ยนสิทธิ์ผู้ใช้เป็น ${role}?`)) return;
+    const ok = await confirm({
+      title: "เปลี่ยนสิทธิ์ผู้ใช้",
+      message: <>ต้องการเปลี่ยนสิทธิ์ผู้ใช้นี้เป็น <b>{role}</b> หรือไม่?</>,
+      okText: "เปลี่ยนสิทธิ์",
+      cancelText: "ยกเลิก",
+    });
+    if (!ok) return;
+
     setBusyId(id);
     try {
       const res = await fetch(`/api/admin/users/${id}`, {
@@ -73,7 +82,16 @@ export default function AdminUsersPage() {
 
   async function removeUser(id: string) {
     if (selfId && id === selfId) return alert("ห้ามลบผู้ใช้ของตัวเอง");
-    if (!confirm("ต้องการลบผู้ใช้นี้จริงหรือไม่?")) return;
+
+    const ok = await confirm({
+      title: "ลบผู้ใช้",
+      message: <>ต้องการลบผู้ใช้นี้จริงหรือไม่?</>,
+      okText: "ลบ",
+      cancelText: "ยกเลิก",
+      danger: true,
+    });
+    if (!ok) return;
+
     setBusyId(id);
     try {
       const res = await fetch(`/api/admin/users/${id}`, { method: "DELETE" });

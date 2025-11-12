@@ -1,9 +1,9 @@
-﻿// src/app/(app)/sales/page.tsx
-"use client";
+﻿"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import SalesDocLink from "@/app/components/SalesDocLink";
+import { useConfirm } from "@/app/components/ConfirmProvider";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +89,7 @@ function PageBtn({
 function SalesContent() {
   const router = useRouter();
   const sp = useSearchParams();
+  const confirm = useConfirm();
 
   const tab = (sp.get("status") || "ALL").toUpperCase();
   const page = Math.max(1, Number(sp.get("page") || 1));
@@ -177,7 +178,20 @@ function SalesContent() {
 
   // ลบ (soft delete)
   const deleteSale = async (id: string, docNo: string) => {
-    if (!confirm(`ลบออเดอร์ ${docNo} ? (จะย้ายไปแท็บ "ลบแล้ว")`)) return;
+    const ok = await confirm({
+      title: "ลบออเดอร์",
+      message: (
+        <div>
+          ต้องการลบ <span className="font-medium">{docNo}</span> ใช่ไหม?
+          <div className="text-slate-500 text-sm mt-1">ระบบจะย้ายไปแท็บ “ลบแล้ว”</div>
+        </div>
+      ),
+      okText: "ลบ",
+      cancelText: "ยกเลิก",
+      danger: true,
+    });
+    if (!ok) return;
+
     setBusy(true);
     try {
       const res = await fetch(`/api/sales/${id}`, { method: "DELETE" });
@@ -206,16 +220,7 @@ function SalesContent() {
     return base;
   }, [data?.isAdmin]);
 
-  // กล่องยืนยันก่อนเปลี่ยนสถานะ
-  const confirmChange = (docNo: string, from: string, to: string) => {
-    const fromTh = TH_STATUS[from]?.label || from;
-    const toTh = TH_STATUS[to]?.label || to;
-    const extra =
-      to === "CANCELLED"
-        ? "\n\nหมายเหตุ: การยกเลิกเป็นเพียงการเปลี่ยนสถานะ (ไม่ได้คืนสต็อกอัตโนมัติ)"
-        : "";
-    return confirm(`ยืนยันเปลี่ยนสถานะเอกสาร ${docNo}\nจาก: ${fromTh}\nเป็น: ${toTh}${extra}`);
-  };
+  const toTh = (s: string) => TH_STATUS[s]?.label ?? s;
 
   return (
     <div className="space-y-6">
@@ -364,7 +369,7 @@ function SalesContent() {
                               value={current}
                               disabled={busy}
                               title="เปลี่ยนสถานะ"
-                              onChange={(e) => {
+                              onChange={async (e) => {
                                 const to = (e.target.value || "").toUpperCase() as
                                   | "NEW"
                                   | "PENDING"
@@ -372,12 +377,36 @@ function SalesContent() {
                                   | "CANCELLED";
                                 if (to === current) return;
 
-                                // กล่องยืนยัน — ถ้าไม่ตกลง ให้รีเซ็ตค่า select กลับ
-                                if (!confirmChange(s.docNo, current, to)) {
+                                const ok = await confirm({
+                                  title: "ยืนยันเปลี่ยนสถานะ",
+                                  message: (
+                                    <div>
+                                      <div>
+                                        เอกสาร: <span className="font-medium">{s.docNo}</span>
+                                      </div>
+                                      <div className="mt-1">
+                                        จาก: <span className="font-medium">{toTh(current)}</span>
+                                      </div>
+                                      <div>
+                                        เป็น: <span className="font-medium">{toTh(to)}</span>
+                                      </div>
+                                      {to === "CANCELLED" && (
+                                        <div className="mt-2 text-rose-600 text-sm">
+                                          * การยกเลิกเป็นเพียงการเปลี่ยนสถานะ (ไม่ได้คืนสต็อกอัตโนมัติ)
+                                        </div>
+                                      )}
+                                    </div>
+                                  ),
+                                  okText: "ตกลง",
+                                  cancelText: "ยกเลิก",
+                                  danger: to === "CANCELLED",
+                                });
+
+                                if (!ok) {
                                   (e.target as HTMLSelectElement).value = current;
                                   return;
                                 }
-                                changeStatus(s.id, to);
+                                await changeStatus(s.id, to);
                               }}
                             >
                               {STATUS_OPTIONS.map((op) => (
