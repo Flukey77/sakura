@@ -1,8 +1,8 @@
-﻿// src/app/(app)/sales/page.tsx
-"use client";
+﻿"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import SalesDocLink from "@/app/components/SalesDocLink";
 
 export const dynamic = "force-dynamic";
 
@@ -51,21 +51,11 @@ const TABS = [
 ] as const;
 
 function PageBtn({
-  active,
-  disabled,
-  children,
-  onClick,
-}: {
-  active?: boolean;
-  disabled?: boolean;
-  children: React.ReactNode;
-  onClick?: () => void;
-}) {
+  active, disabled, children, onClick,
+}: { active?: boolean; disabled?: boolean; children: React.ReactNode; onClick?: () => void; }) {
   return (
     <button
-      className={`min-w-9 px-3 py-1.5 rounded-xl border ${
-        active ? "bg-slate-900 text-white border-slate-900" : "bg-white"
-      } disabled:opacity-50`}
+      className={`min-w-9 px-3 py-1.5 rounded-xl border ${active ? "bg-slate-900 text-white border-slate-900" : "bg-white"} disabled:opacity-50`}
       disabled={disabled}
       onClick={onClick}
     >
@@ -80,12 +70,11 @@ function SalesContent() {
 
   const tab = (sp.get("status") || "ALL").toUpperCase();
   const page = Math.max(1, Number(sp.get("page") || 1));
-  // default 10 ต่อหน้า
   const pageSize = Math.min(Math.max(5, Number(sp.get("pageSize") || 10)), 100);
   const q = (sp.get("q") || "").trim();
 
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy,   setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [data, setData] = useState<ApiRes | null>(null);
   const [search, setSearch] = useState(q);
@@ -99,8 +88,7 @@ function SalesContent() {
       qs.set("page", String(page));
       qs.set("pageSize", String(pageSize));
       if (q) qs.set("q", q);
-      const url = `/api/sales?${qs.toString()}`;
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch(`/api/sales?${qs.toString()}`, { cache: "no-store" });
       const j = (await res.json()) as ApiRes;
       if (!res.ok || j.ok === false) throw new Error(j?.message || "โหลดข้อมูลล้มเหลว");
       setData(j);
@@ -162,16 +150,16 @@ function SalesContent() {
 
   const sales = useMemo(() => data?.sales ?? [], [data]);
   const totalPages = data?.pagination?.totalPages ?? 1;
-  const curPage = data?.pagination?.page ?? page;
+  const curPage    = data?.pagination?.page ?? page;
 
   const pageWindow = 2;
   const start = Math.max(1, curPage - pageWindow);
-  const end = Math.min(totalPages, curPage + pageWindow);
+  const end   = Math.min(totalPages, curPage + pageWindow);
   const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
 
   return (
     <div className="space-y-6">
-      {/* สรุปยอด */}
+      {/* สรุป */}
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="rounded-2xl border bg-white"><div className="p-5">
           <div className="text-slate-500">จำนวนออเดอร์</div>
@@ -193,7 +181,7 @@ function SalesContent() {
         </div>
       </div>
 
-      {/* แถบสถานะ + ค้นหา + ปุ่ม */}
+      {/* ตัวกรอง + ค้นหา */}
       <div className="flex flex-wrap items-center gap-2">
         {TABS.map((t) => (
           <button
@@ -206,9 +194,7 @@ function SalesContent() {
               if (q) params.set("q", q); else params.delete("q");
               router.push(`/sales?${params.toString()}`);
             }}
-            className={`px-3 py-1.5 rounded-xl border ${
-              tab === t.key ? "bg-slate-900 text-white border-slate-900" : "bg-white"
-            }`}
+            className={`px-3 py-1.5 rounded-xl border ${tab === t.key ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}
             disabled={loading}
           >
             {t.label}
@@ -220,7 +206,6 @@ function SalesContent() {
 
         <div className="flex-1" />
 
-        {/* กล่องค้นหา */}
         <div className="flex items-center gap-2">
           <input
             className="input w-[260px]"
@@ -242,12 +227,6 @@ function SalesContent() {
           {loading ? "กำลังโหลด…" : "รีเฟรช"}
         </button>
       </div>
-
-      {errorMsg && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
-          {errorMsg} <button onClick={load} className="btn btn-secondary ml-3">ลองใหม่</button>
-        </div>
-      )}
 
       {/* ตาราง */}
       <div className="rounded-2xl border bg-white overflow-auto">
@@ -273,7 +252,9 @@ function SalesContent() {
             {sales.map((s) => (
               <tr key={s.id} className="border-t">
                 <td className="py-2 px-4">{new Date(s.date).toLocaleDateString("th-TH")}</td>
-                <td className="py-2 px-4">{s.docNo}</td>
+                <td className="py-2 px-4">
+                  <SalesDocLink id={s.id} docNo={s.docNo} />
+                </td>
                 <td className="py-2 px-4">{s.customer || "-"}</td>
                 <td className="py-2 px-4">{s.channel || "-"}</td>
                 <td className="py-2 px-4">฿{fmtBaht(Number(s.total || 0))}</td>
