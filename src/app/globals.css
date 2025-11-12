@@ -75,6 +75,28 @@
 
   /* ยูทิลิตี้ห่อ table ให้สไลด์แนวนอนได้บนมือถือ */
   .table-wrap { @apply overflow-x-auto w-full; }
+
+  /* ---------- Shortcuts (การ์ดทางลัด – เอฟเฟกต์เด้ง + ดำตอน hover) ---------- */
+  .shortcut {
+    @apply group flex items-start gap-4 rounded-2xl border border-slate-200 bg-white px-6 py-5
+           transition-all duration-200 shadow-sm hover:-translate-y-0.5 hover:shadow-lg
+           focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2;
+  }
+  .shortcut:hover {
+    @apply bg-slate-900 text-white border-slate-900;
+  }
+
+  .shortcut-icon {
+    @apply h-12 w-12 rounded-2xl grid place-items-center ring-1 ring-inset ring-slate-200
+           bg-slate-100 text-slate-700 transition-colors duration-200;
+  }
+  .shortcut:hover .shortcut-icon {
+    @apply bg-white text-slate-900;
+  }
+
+  .shortcut-title { @apply font-medium leading-6; }
+  .shortcut-desc  { @apply text-sm text-slate-500; }
+  .shortcut:hover .shortcut-desc { @apply text-slate-300; }
 }
 
 /* ---------- Utilities ---------- */
