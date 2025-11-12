@@ -4,6 +4,9 @@ import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/sales/restore
  * body: { idOrDocNo: string }
@@ -12,8 +15,9 @@ export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     const role = (session?.user as any)?.role as string | undefined;
+
     if (role !== "ADMIN") {
-      return NextResponse.json({ ok: false, message: "forbidden" }, { status: 403 });
+      return NextResponse.json({ ok: false, message: "forbidden: admin only" }, { status: 403 });
     }
 
     const body = await req.json().catch(() => ({}));
@@ -26,8 +30,12 @@ export async function POST(req: Request) {
       where: { OR: [{ id: idOrDocNo }, { docNo: idOrDocNo }] },
       select: { id: true, deletedAt: true },
     });
-    if (!target) return NextResponse.json({ ok: false, message: "not found" }, { status: 404 });
+
+    if (!target) {
+      return NextResponse.json({ ok: false, message: "not found" }, { status: 404 });
+    }
     if (!target.deletedAt) {
+      // ไม่ถือว่า error — แค่แจ้งว่ามันไม่ถูกลบ
       return NextResponse.json({ ok: true, message: "not deleted" });
     }
 
@@ -37,9 +45,12 @@ export async function POST(req: Request) {
       select: { id: true },
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, message: "restored" });
   } catch (err: any) {
     console.error("POST /api/sales/restore error:", err);
-    return NextResponse.json({ ok: false, message: err?.message ?? "restore failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, message: err?.message ?? "restore failed" },
+      { status: 500 }
+    );
   }
 }

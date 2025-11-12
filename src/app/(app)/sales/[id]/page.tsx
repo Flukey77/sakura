@@ -48,7 +48,9 @@ export default function SaleDetailPage() {
     try {
       const res = await fetch(`/api/sales/${encodeURIComponent(id)}`, { cache: "no-store" });
       const j = (await res.json()) as ApiRes;
-      if (!res.ok || !j.ok) throw new Error((j as any)?.error || "โหลดข้อมูลล้มเหลว");
+      if (!res.ok || !("ok" in j) || j.ok === false) {
+        throw new Error((j as any)?.error || "โหลดข้อมูลล้มเหลว");
+      }
       setData(j.sale);
     } catch (e: any) {
       alert(e?.message || "โหลดข้อมูลล้มเหลว");
@@ -70,11 +72,15 @@ export default function SaleDetailPage() {
       const res = await fetch("/api/sales/restore", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idOrDocNo: data.id }),
+        // ใช้ docNo เพื่อความชัวร์
+        body: JSON.stringify({ idOrDocNo: data.docNo }),
       });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok || j?.ok === false) throw new Error(j?.message || "กู้คืนไม่สำเร็จ");
+      if (!res.ok || j?.ok === false) {
+        throw new Error(j?.message || `HTTP ${res.status}`);
+      }
       await load();
+      alert("กู้คืนสำเร็จ");
     } catch (e: any) {
       alert(e?.message || "กู้คืนไม่สำเร็จ");
     } finally {
@@ -125,7 +131,7 @@ export default function SaleDetailPage() {
             disabled={busy}
             className="rounded-xl bg-emerald-600 text-white px-4 py-2 disabled:opacity-60"
           >
-            กู้คืน
+            {busy ? "กำลังกู้คืน…" : "กู้คืน"}
           </button>
         )}
       </div>
