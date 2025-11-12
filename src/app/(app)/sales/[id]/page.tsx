@@ -48,9 +48,7 @@ export default function SaleDetailPage() {
     try {
       const res = await fetch(`/api/sales/${encodeURIComponent(id)}`, { cache: "no-store" });
       const j = (await res.json()) as ApiRes;
-      if (!res.ok || !("ok" in j) || j.ok === false) {
-        throw new Error((j as any)?.error || "โหลดข้อมูลล้มเหลว");
-      }
+      if (!res.ok || !j.ok) throw new Error((j as any)?.error || "โหลดข้อมูลล้มเหลว");
       setData(j.sale);
     } catch (e: any) {
       alert(e?.message || "โหลดข้อมูลล้มเหลว");
@@ -64,21 +62,42 @@ export default function SaleDetailPage() {
     load();
   }, [id]);
 
-  const restore = async () => {
+  const tryRestore = async (force = false) => {
     if (!data) return;
-    if (!confirm(`กู้คืนเอกสาร ${data.docNo} ?`)) return;
+    const label = force ? "กู้คืนแบบยอมให้สต็อกติดลบ" : "กู้คืนเอกสาร";
+    if (
+      !confirm(`${label} ${data.docNo} ?${force ? "\n\nสต็อกสินค้าบางตัวจะติดลบ" : ""}`)
+    )
+      return;
+
     setBusy(true);
     try {
       const res = await fetch("/api/sales/restore", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // ใช้ docNo เพื่อความชัวร์
-        body: JSON.stringify({ idOrDocNo: data.docNo }),
+        body: JSON.stringify({ idOrDocNo: data.id, force }),
       });
       const j = await res.json().catch(() => ({}));
+
       if (!res.ok || j?.ok === false) {
-        throw new Error(j?.message || `HTTP ${res.status}`);
+        // ถ้าสต็อกไม่พอ: แสดงรายละเอียด แล้วถามว่าจะ force ไหม
+        if (j?.code === "INSUFFICIENT_STOCK" && Array.isArray(j?.problems)) {
+          const lines = (j.problems as any[])
+            .map((p) => `• ${p.code} (${p.name}) คงเหลือ ${p.remain}, ต้องการ ${p.need}`)
+            .join("\n");
+          if (
+            confirm(
+              `สต็อกไม่พอสำหรับกู้คืน:\n\n${lines}\n\nต้องการกู้คืนแบบยอมให้สต็อกติดลบหรือไม่?`
+            )
+          ) {
+            await tryRestore(true);
+          }
+          return;
+        }
+
+        throw new Error(j?.message || "กู้คืนไม่สำเร็จ");
       }
+
       await load();
       alert("กู้คืนสำเร็จ");
     } catch (e: any) {
@@ -127,11 +146,11 @@ export default function SaleDetailPage() {
         {/* ปุ่มกู้คืน (เฉพาะเมื่อถูกลบ) */}
         {data.deletedAt && (
           <button
-            onClick={restore}
+            onClick={() => tryRestore(false)}
             disabled={busy}
             className="rounded-xl bg-emerald-600 text-white px-4 py-2 disabled:opacity-60"
           >
-            {busy ? "กำลังกู้คืน…" : "กู้คืน"}
+            {busy ? "กำลังกู้คืน..." : "กู้คืน"}
           </button>
         )}
       </div>
