@@ -4,12 +4,11 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
 import { Prisma } from "@prisma/client";
 
-/** -------- Decimal helpers -------- */
+/* --------------------------------- helpers -------------------------------- */
 const D = Prisma.Decimal;
 const r2 = (x: number | string | Prisma.Decimal) =>
   Number(new D(x ?? 0).toDecimalPlaces(2));
 
-/** today ตามโซนเครื่อง (ตัดเวลาออก) */
 function todayLocal() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -32,7 +31,6 @@ function toDateThaiAware(x?: string): Date {
   return todayLocal();
 }
 
-/** กันข้อมูลปี พ.ศ. เผลอหลุดเข้ามา */
 function normalizeChristianYear(d: Date) {
   let y = d.getFullYear();
   if (y > 2200) {
@@ -42,7 +40,6 @@ function normalizeChristianYear(d: Date) {
   return d;
 }
 
-/** กรองรายการ + แปลงตัวเลข */
 function normalizeItems(raw: any[]) {
   return (raw || [])
     .filter(
@@ -60,7 +57,6 @@ function normalizeItems(raw: any[]) {
     }));
 }
 
-/** สร้างเลขเอกสาร SO-YYYYMMDDNNN */
 function buildDocNo(d: Date, seq: number) {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -69,7 +65,6 @@ function buildDocNo(d: Date, seq: number) {
   return `SO-${yyyy}${mm}${dd}${s}`;
 }
 
-/** ออกเลขเอกสารตามวันที่ที่ระบุ (กันชนซ้ำในวันเดียวกัน) */
 async function generateDocNo(forDate: Date) {
   const yyyy = forDate.getFullYear();
   const mm = String(forDate.getMonth() + 1).padStart(2, "0");
@@ -89,7 +84,6 @@ async function generateDocNo(forDate: Date) {
   return buildDocNo(forDate, nextSeq);
 }
 
-/** หา/สร้างลูกค้า: ใช้ phone/email เท่านั้นในการหาเดิม (ไม่ใช้ name) */
 async function findOrCreateCustomer(reqCust: any) {
   const name = (reqCust?.name ? String(reqCust.name) : "").trim();
   const phone = (reqCust?.phone ? String(reqCust.phone) : "").trim() || undefined;
@@ -156,7 +150,7 @@ async function findOrCreateCustomer(reqCust: any) {
   }
 }
 
-/** ------------------------ POST: Create Sale ------------------------ */
+/* ----------------------------------- POST ---------------------------------- */
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -168,7 +162,7 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     let docDate = toDateThaiAware(body.docDate);
-    docDate = normalizeChristianYear(docDate); // บังคับ ค.ศ.
+    docDate = normalizeChristianYear(docDate);
 
     const channel: string | null = body.channel ?? null;
 
@@ -184,7 +178,6 @@ export async function POST(req: Request) {
     const present = await prisma.product.findMany({ where: { code: { in: codes } } });
     const pmap = new Map(present.map((p) => [p.code, p]));
 
-    // auto-create product ที่ยังไม่มี
     for (const code of codes) {
       if (!pmap.has(code)) {
         const p = await prisma.product.create({
@@ -194,7 +187,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // ตรวจสต๊อก
     for (const it of items) {
       const p = pmap.get(it.code)!;
       if ((p.stock ?? 0) - it.qty < 0) {
@@ -205,7 +197,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // คำนวณยอด
     let subtotal = new D(0);
     const linePayload = items.map((it) => {
       const p = pmap.get(it.code)!;
@@ -233,7 +224,6 @@ export async function POST(req: Request) {
     const wantDocNo = typeof body.docNo === "string" ? body.docNo.trim() : "";
     let finalDocNo = wantDocNo || (await generateDocNo(docDate));
 
-    // กันชนเลขเอกสารซ้ำ
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const created = await prisma.$transaction(async (tx) => {
@@ -268,7 +258,6 @@ export async function POST(req: Request) {
             select: { id: true, docNo: true, docDate: true },
           });
 
-          // ตัดสต๊อก
           await Promise.all(
             linePayload.map((x) =>
               tx.product.update({
@@ -321,7 +310,7 @@ export async function POST(req: Request) {
   }
 }
 
-/** ------------------------ GET: List + Pagination + Search + Summary Rules ------------------------ */
+/* ------------------------------------ GET ---------------------------------- */
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -330,55 +319,58 @@ export async function GET(req: Request) {
     const to = searchParams.get("to");
     const statusParam = (searchParams.get("status") || "ALL").toUpperCase();
 
-    // เพิ่มตัวกรองใหม่
     const doc = (searchParams.get("doc") || "").trim();
     const customer = (searchParams.get("customer") || "").trim();
     const channel = (searchParams.get("channel") || "").trim();
-
-    // คำค้นรวมเดิม (ยังรองรับ)
     const q = (searchParams.get("q") || "").trim();
 
     const page = Math.max(1, Number(searchParams.get("page") || 1));
     const pageSizeRaw = Number(searchParams.get("pageSize") || 10);
     const pageSize = Math.min(Math.max(5, pageSizeRaw), 100);
 
-    // --------- baseWhere ----------
-    const baseWhere: Prisma.SaleWhereInput = {};
-
-    // วันที่
-    let dateFilter: Prisma.DateTimeFilter | undefined;
-    if (from) dateFilter = { ...(dateFilter ?? {}), gte: toDateThaiAware(from) };
-    if (to) {
-      const t = toDateThaiAware(to);
-      t.setHours(23, 59, 59, 999);
-      dateFilter = { ...(dateFilter ?? {}), lte: t };
-    }
-    if (dateFilter) baseWhere.date = dateFilter;
-
-    // ฟิลเตอร์ใหม่: doc / customer / channel
     const mode = Prisma.QueryMode.insensitive;
-    const andFilters: Prisma.SaleWhereInput[] = [];
-    if (doc) andFilters.push({ docNo: { contains: doc, mode } });
-    if (channel) andFilters.push({ channel: { contains: channel, mode } });
+
+    // ---- baseWhere (รวมทุกฟิลเตอร์อย่าง type-safe) ----
+    const baseAnd: Prisma.SaleWhereInput[] = [];
+
+    // ช่วงวันที่: ครอบคลุมทั้ง docDate และ date
+    if (from || to) {
+      const range: Prisma.DateTimeFilter = {};
+      if (from) range.gte = toDateThaiAware(from);
+      if (to) {
+        const t = toDateThaiAware(to);
+        t.setHours(23, 59, 59, 999);
+        range.lte = t;
+      }
+      baseAnd.push({ OR: [{ docDate: range }, { date: range }] });
+    }
+
+    // ฟิลเตอร์เจาะจง
+    if (doc) baseAnd.push({ docNo: { contains: doc, mode } });
+    if (channel) baseAnd.push({ channel: { contains: channel, mode } });
     if (customer) {
-      andFilters.push({
+      baseAnd.push({
         OR: [
           { customer: { contains: customer, mode } },
           { customerRef: { name: { contains: customer, mode } } },
         ],
       });
     }
-    if (andFilters.length) baseWhere.AND = andFilters;
 
-    // คำค้นรวม (เดิม)
+    // คำค้นรวม
+    const baseOr: Prisma.SaleWhereInput[] = [];
     if (q) {
-      baseWhere.OR = [
+      baseOr.push(
         { docNo: { contains: q, mode } },
-        { customer: { contains: q, mode } },
-      ];
+        { customer: { contains: q, mode } }
+      );
     }
 
-    // ---------- counters ----------
+    const baseWhere: Prisma.SaleWhereInput = {};
+    if (baseAnd.length) baseWhere.AND = baseAnd;
+    if (baseOr.length) baseWhere.OR = baseOr;
+
+    // counters
     const countersSeed = await prisma.sale.findMany({
       where: baseWhere,
       select: { status: true },
@@ -390,26 +382,34 @@ export async function GET(req: Request) {
       if (k in counters) counters[k] += 1;
     }
 
-    // เงื่อนไขของตาราง
+    // where สำหรับตาราง
     const where: Prisma.SaleWhereInput = { ...baseWhere };
     if (statusParam !== "ALL") where.status = statusParam;
 
     const totalCount = await prisma.sale.count({ where });
 
-    // รายการ
-    const salesRows = await prisma.sale.findMany({
+    // ✅ เรียงล่าสุดบนสุดแบบเสถียร
+    const rows = await prisma.sale.findMany({
       where,
-      orderBy: { date: "desc" },
+      orderBy: [{ docDate: "desc" }, { date: "desc" }, { docNo: "desc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: {
-        user: { select: { id: true, username: true, name: true } },
-        items: true,
-        customerRef: { select: { id: true, name: true, phone: true, email: true, address: true } },
+      select: {
+        id: true,
+        docNo: true,
+        docDate: true,
+        date: true,
+        customer: true,
+        channel: true,
+        total: true,
+        status: true,
+        customerRef: { select: { name: true } },
+        items: { select: { cogs: true } },
+        totalCost: true,
       },
     });
 
-    const sales = salesRows.map((r) => ({
+    const sales = rows.map((r) => ({
       id: r.id,
       docNo: r.docNo,
       docDate: r.docDate,
@@ -420,19 +420,19 @@ export async function GET(req: Request) {
       status: r.status,
     }));
 
-    // สรุป
+    // สรุป (ไม่รวม CANCELLED ถ้า status=ALL)
     let summaryWhere: Prisma.SaleWhereInput = { ...where };
     if (statusParam === "ALL") {
-      summaryWhere = { ...summaryWhere, NOT: { status: "CANCELLED" as any } };
+      summaryWhere = { ...summaryWhere, NOT: { status: "CANCELLED" } };
     }
 
-    const summaryRows = await prisma.sale.findMany({
+    const sRows = await prisma.sale.findMany({
       where: summaryWhere,
       select: { total: true, totalCost: true, items: { select: { cogs: true } } },
     });
     const summaryCount = await prisma.sale.count({ where: summaryWhere });
 
-    const summary = summaryRows.reduce(
+    const summary = sRows.reduce(
       (acc, s) => {
         const total = new D(s.total || 0);
         const cogs =
