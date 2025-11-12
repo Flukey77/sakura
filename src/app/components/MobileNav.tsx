@@ -3,16 +3,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import React from "react";
+import React, { useMemo } from "react";
 import { useSession } from "next-auth/react";
 
-type Tab = { href: string; label: string; emoji: string };
+type Item = { href: string; label: string; emoji: string };
+
+const baseItems: Item[] = [
+  { href: "/dashboard", label: "ภาพรวม", emoji: "🏠" },
+  { href: "/sales", label: "ขาย", emoji: "🧾" },
+  { href: "/products", label: "คลัง", emoji: "📦" },
+  { href: "/reports", label: "รายงาน", emoji: "📈" },
+];
 
 export function MobileTopBar() {
   const pathname = usePathname();
   const notHome = pathname !== "/dashboard";
 
-  // โชว์เฉพาะจอเล็ก
   return (
     <div className="md:hidden sticky top-0 z-50 bg-white/90 backdrop-blur border-b">
       <div className="flex items-center gap-3 px-3 h-12">
@@ -40,22 +46,24 @@ export function MobileTabBar() {
   const { data } = useSession();
   const role = (data?.user as any)?.role as "ADMIN" | "EMPLOYEE" | undefined;
 
-  const baseTabs: Tab[] = [
-    { href: "/dashboard", label: "ภาพรวม", emoji: "🏠" },
-    { href: "/sales",     label: "ขาย",   emoji: "🧾" },
-    { href: "/products",  label: "คลัง",  emoji: "📦" },
-    { href: "/reports",   label: "รายงาน", emoji: "📈" },
-  ];
+  const items = useMemo(() => {
+    if (role === "ADMIN") {
+      return [
+        ...baseItems,
+        { href: "/admin/users", label: "ผู้ใช้", emoji: "👥" } as Item,
+      ];
+    }
+    return baseItems;
+  }, [role]);
 
-  const tabs = role === "ADMIN"
-    ? [...baseTabs, { href: "/admin/users", label: "ผู้ใช้", emoji: "👥" }]
-    : baseTabs;
+  const cols = items.length; // 4 หรือ 5
 
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 border-t bg-white">
-      <ul className={`grid ${tabs.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
-        {tabs.map((it) => {
-          const active = pathname === it.href || pathname.startsWith(it.href + "/");
+      <ul className={`grid grid-cols-${cols}`}>
+        {items.map((it) => {
+          const active =
+            pathname === it.href || pathname.startsWith(it.href + "/");
           return (
             <li key={it.href}>
               <Link
@@ -66,7 +74,9 @@ export function MobileTabBar() {
                 aria-current={active ? "page" : undefined}
                 title={it.label}
               >
-                <span aria-hidden className="text-base leading-none">{it.emoji}</span>
+                <span aria-hidden className="text-base leading-none">
+                  {it.emoji}
+                </span>
                 <span className="mt-0.5">{it.label}</span>
               </Link>
             </li>

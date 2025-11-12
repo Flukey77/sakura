@@ -1,15 +1,37 @@
-﻿// src/app/(auth)/layout.tsx
+﻿// src/app/(app)/layout.tsx
 import type { ReactNode } from "react";
+import Sidebar from "@/app/components/Sidebar";
+import Header from "./_components/Header";
+import { MobileTopBar, MobileTabBar } from "@/app/components/MobileNav";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Sakura – Login" };
+export const metadata = { title: "Sakura" };
 
-export default function AuthLayout({ children }: { children: ReactNode }) {
+export default function AppLayout({ children }: { children: ReactNode }) {
   return (
-    // ใช้ทั้ง 100svh และ 100dvh กันปัญหา webview/แถบระบบมือถือ
-    <div className="min-h-[100svh] min-h-[100dvh] bg-slate-50 flex items-center justify-center px-4">
-      {/* ให้มี max-width เพื่ออ่านง่าย และเว้นระยะบน/ล่างเผื่อคีย์บอร์ดเด้งขึ้น */}
-      <div className="w-full max-w-sm my-6">{children}</div>
+    <div className="min-h-screen flex">
+      {/* Sidebar: ซ่อนบนมือถือ */}
+      <aside className="hidden md:block md:w-64 shrink-0">
+        <Sidebar />
+      </aside>
+
+      <div className="flex-1 min-w-0 flex flex-col">
+        {/* แถบบนเฉพาะมือถือ */}
+        <MobileTopBar />
+
+        {/* เดสก์ท็อปเฮดเดอร์ */}
+        <div className="hidden md:block">
+          <Header />
+        </div>
+
+        {/* เผื่อพื้นที่ให้แถบล่างบนมือถือ (pb-16) */}
+        <main className="flex-1 mx-auto w-full max-w-[1400px] px-3 sm:px-4 py-6 pb-16 overflow-x-hidden">
+          {children}
+        </main>
+
+        {/* แถบนำทางล่างเฉพาะมือถือ */}
+        <MobileTabBar />
+      </div>
     </div>
   );
 }
