@@ -84,20 +84,26 @@ function LoginContent() {
 
   if (tab === "login") {
     return (
-      <main className="p-0">
-        <div className="card p-6 shadow-sm rounded-2xl">
-          <h1 className="text-lg font-semibold text-center mb-6">
-            Sakura Biotech Co., Ltd. — Login
-          </h1>
+      // กึ่งกลางทั้งแนวตั้ง/แนวนอน บนมือถือใช้ 100dvh เพื่อกันแถบเบราว์เซอร์
+      <main className="min-h-[100dvh] flex items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-sm">
+          <div className="card p-5 sm:p-6 shadow-sm rounded-2xl">
+            <h1 className="text-lg font-semibold text-center mb-1">
+              Sakura Biotech Co., Ltd. — Login
+            </h1>
+            <p className="text-center text-slate-500 text-sm mb-4">
+              กรุณาเข้าสู่ระบบเพื่อใช้งาน
+            </p>
 
-          {/* LoginForm ของคุณ */}
-          <LoginForm />
+            {/* LoginForm ของคุณ */}
+            <LoginForm />
 
-          <div className="mt-4 text-center text-sm text-slate-500">
-            ไม่มีบัญชี?{" "}
-            <a href="/login?tab=register" className="text-blue-600 hover:underline">
-              สมัครสมาชิกที่นี่
-            </a>
+            <div className="mt-4 text-center text-sm text-slate-500">
+              ไม่มีบัญชี?{" "}
+              <a href="/login?tab=register" className="text-blue-600 hover:underline">
+                สมัครสมาชิกที่นี่
+              </a>
+            </div>
           </div>
         </div>
       </main>
@@ -106,66 +112,69 @@ function LoginContent() {
 
   // Register tab
   return (
-    <main className="p-0">
-      <div className="card p-6 shadow-sm rounded-2xl">
-        <h2 className="text-lg font-semibold text-center mb-6">ลงทะเบียนพนักงาน</h2>
+    <main className="min-h-[100dvh] flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-sm">
+        <div className="card p-5 sm:p-6 shadow-sm rounded-2xl">
+          <h2 className="text-lg font-semibold text-center mb-1">ลงทะเบียนพนักงาน</h2>
+          <p className="text-center text-slate-500 text-sm mb-4">กรอกข้อมูลให้ครบถ้วน</p>
 
-        <div className="space-y-1">
-          <label className="text-sm text-slate-600">Username</label>
-          <input
-            className="input"
-            inputMode="text"
-            autoCapitalize="none"
-            autoCorrect="off"
-            value={reg.username}
-            onChange={(e) => setReg({ ...reg, username: e.target.value.trim() })}
-            placeholder="ชื่อผู้ใช้บริษัท"
-          />
+          <div className="space-y-1">
+            <label className="text-sm text-slate-600">Username</label>
+            <input
+              className="input h-11"
+              inputMode="text"
+              autoCapitalize="none"
+              autoCorrect="off"
+              value={reg.username}
+              onChange={(e) => setReg({ ...reg, username: e.target.value.trim() })}
+              placeholder="ชื่อผู้ใช้บริษัท"
+            />
+          </div>
+
+          <div className="space-y-1 mt-3">
+            <label className="text-sm text-slate-600">Password</label>
+            <input
+              type="password"
+              className="input h-11"
+              value={reg.password}
+              onChange={(e) => setReg({ ...reg, password: e.target.value })}
+              placeholder="รหัสผ่าน"
+            />
+          </div>
+
+          <div className="space-y-1 mt-3">
+            <label className="text-sm text-slate-600">ชื่อที่แสดง (ไม่บังคับ)</label>
+            <input
+              className="input h-11"
+              value={reg.name}
+              onChange={(e) => setReg({ ...reg, name: e.target.value })}
+              placeholder="เช่น สมชาย ใจดี"
+            />
+          </div>
+
+          <div className="space-y-1 mt-3">
+            <label className="text-sm text-slate-600">SIGNUP CODE</label>
+            <input
+              className="input h-11"
+              inputMode="text"
+              autoCapitalize="characters"
+              value={reg.signupCode}
+              onChange={(e) => setReg({ ...reg, signupCode: e.target.value.trim() })}
+              placeholder="รหัสบริษัท (เช่น SAKURA-ONLY)"
+            />
+          </div>
+
+          <button onClick={register} disabled={loading} className="btn btn-primary w-full mt-5 h-11">
+            {loading ? "กำลังสมัคร..." : "สมัครสมาชิก"}
+          </button>
+
+          <p className="text-center text-sm mt-3 text-slate-500">
+            มีบัญชีแล้ว?{" "}
+            <a href="/login" className="text-blue-600 hover:underline">
+              เข้าสู่ระบบ
+            </a>
+          </p>
         </div>
-
-        <div className="space-y-1 mt-3">
-          <label className="text-sm text-slate-600">Password</label>
-          <input
-            type="password"
-            className="input"
-            value={reg.password}
-            onChange={(e) => setReg({ ...reg, password: e.target.value })}
-            placeholder="รหัสผ่าน"
-          />
-        </div>
-
-        <div className="space-y-1 mt-3">
-          <label className="text-sm text-slate-600">ชื่อที่แสดง (ไม่บังคับ)</label>
-          <input
-            className="input"
-            value={reg.name}
-            onChange={(e) => setReg({ ...reg, name: e.target.value })}
-            placeholder="เช่น สมชาย ใจดี"
-          />
-        </div>
-
-        <div className="space-y-1 mt-3">
-          <label className="text-sm text-slate-600">SIGNUP CODE</label>
-          <input
-            className="input"
-            inputMode="text"
-            autoCapitalize="characters"
-            value={reg.signupCode}
-            onChange={(e) => setReg({ ...reg, signupCode: e.target.value.trim() })}
-            placeholder="รหัสบริษัท (เช่น SAKURA-ONLY)"
-          />
-        </div>
-
-        <button onClick={register} disabled={loading} className="btn btn-primary w-full mt-5">
-          {loading ? "กำลังสมัคร..." : "สมัครสมาชิก"}
-        </button>
-
-        <p className="text-center text-sm mt-3 text-slate-500">
-          มีบัญชีแล้ว?{" "}
-          <a href="/login" className="text-blue-600 hover:underline">
-            เข้าสู่ระบบ
-          </a>
-        </p>
       </div>
     </main>
   );

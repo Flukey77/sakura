@@ -1,15 +1,12 @@
+// src/app/components/MobileNav.tsx
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
+import { useSession } from "next-auth/react";
 
-const items = [
-  { href: "/dashboard", label: "ภาพรวม", emoji: "🏠" },
-  { href: "/sales",     label: "ขาย",   emoji: "🧾" },
-  { href: "/products",  label: "คลัง",  emoji: "📦" },
-  { href: "/reports",   label: "รายงาน", emoji: "📈" },
-];
+type Tab = { href: string; label: string; emoji: string };
 
 export function MobileTopBar() {
   const pathname = usePathname();
@@ -40,12 +37,25 @@ export function MobileTopBar() {
 
 export function MobileTabBar() {
   const pathname = usePathname();
+  const { data } = useSession();
+  const role = (data?.user as any)?.role as "ADMIN" | "EMPLOYEE" | undefined;
+
+  const baseTabs: Tab[] = [
+    { href: "/dashboard", label: "ภาพรวม", emoji: "🏠" },
+    { href: "/sales",     label: "ขาย",   emoji: "🧾" },
+    { href: "/products",  label: "คลัง",  emoji: "📦" },
+    { href: "/reports",   label: "รายงาน", emoji: "📈" },
+  ];
+
+  const tabs = role === "ADMIN"
+    ? [...baseTabs, { href: "/admin/users", label: "ผู้ใช้", emoji: "👥" }]
+    : baseTabs;
+
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 border-t bg-white">
-      <ul className="grid grid-cols-4">
-        {items.map((it) => {
-          const active =
-            pathname === it.href || pathname.startsWith(it.href + "/");
+      <ul className={`grid ${tabs.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+        {tabs.map((it) => {
+          const active = pathname === it.href || pathname.startsWith(it.href + "/");
           return (
             <li key={it.href}>
               <Link
@@ -56,9 +66,7 @@ export function MobileTabBar() {
                 aria-current={active ? "page" : undefined}
                 title={it.label}
               >
-                <span aria-hidden className="text-base leading-none">
-                  {it.emoji}
-                </span>
+                <span aria-hidden className="text-base leading-none">{it.emoji}</span>
                 <span className="mt-0.5">{it.label}</span>
               </Link>
             </li>

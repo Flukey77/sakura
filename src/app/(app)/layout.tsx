@@ -1,4 +1,5 @@
-﻿import type { ReactNode } from "react";
+﻿// src/app/(app)/layout.tsx
+import type { ReactNode } from "react";
 import Sidebar from "@/app/components/Sidebar";
 import Header from "./_components/Header";
 import { MobileTopBar, MobileTabBar } from "@/app/components/MobileNav";
