@@ -7,19 +7,18 @@ import { authOptions } from "@/lib/auth-options";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** ปัดทศนิยม 2 ตำแหน่งแบบปลอดภัย */
 function r2(v: unknown) {
   const n = Number(v ?? 0);
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100) / 100;
 }
 
-/** ดึงใบขายด้วย id หรือ docNo (แม้ถูกลบก็อ่านได้) */
 async function fetchSale(idOrDocNo: string) {
+  // ไม่ใส่ select scalar เพื่อให้ Prisma คืนทุก scalar field (รวม deletedAt/deletedBy)
   return prisma.sale.findFirst({
     where: { OR: [{ id: idOrDocNo }, { docNo: idOrDocNo }] },
     include: {
-      user: { select: { id: true, username: true, name: true, role: true } },
+      user: { select: { id: true, username: true, name: true } },
       customerRef: {
         select: { id: true, name: true, phone: true, email: true, address: true },
       },
@@ -31,14 +30,8 @@ async function fetchSale(idOrDocNo: string) {
   });
 }
 
-/* =========================
- * GET: อ่านรายละเอียดใบขาย
- * /api/sales/[idOrDocNo]
- * ======================= */
-export async function GET(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
+/* ========= GET /api/sales/[idOrDocNo] ========= */
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const idOrDoc = decodeURIComponent(params?.id ?? "");
     if (!idOrDoc) {
@@ -63,10 +56,7 @@ export async function GET(
 
     const total = r2(sale.total);
     const totalCogs =
-      sale.totalCost != null
-        ? r2(sale.totalCost)
-        : items.reduce((t, i) => t + r2(i.cogs), 0);
-
+      sale.totalCost != null ? r2(sale.totalCost) : items.reduce((t, i) => t + r2(i.cogs), 0);
     const subtotal = items.reduce((t, i) => t + r2(i.amount), 0);
     const vat = r2(total - subtotal);
     const gross = r2(total - totalCogs);
@@ -81,7 +71,6 @@ export async function GET(
         status: sale.status,
         channel: sale.channel,
         deletedAt: sale.deletedAt ?? null,
-        deletedBy: sale.deletedBy ?? null,
         createdBy: sale.user?.name || sale.user?.username || null,
         customer: sale.customer ?? sale.customerRef?.name ?? null,
         customerInfo: {
@@ -96,21 +85,12 @@ export async function GET(
     });
   } catch (err: any) {
     console.error("GET /api/sales/[id] error:", err);
-    return NextResponse.json(
-      { ok: false, error: err?.message ?? "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message ?? "Server error" }, { status: 500 });
   }
 }
 
-/* =========================
- * PATCH: อัปเดตสถานะใบขาย
- * body: { status: "NEW" | "PENDING" | "CONFIRMED" | "CANCELLED" }
- * ======================= */
-export async function PATCH(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+/* ========= PATCH /api/sales/[idOrDocNo] (เปลี่ยนสถานะ) ========= */
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
     const idOrDoc = decodeURIComponent(params?.id ?? "");
     if (!idOrDoc) {
@@ -133,7 +113,7 @@ export async function PATCH(
       return NextResponse.json({ ok: false, message: "not found" }, { status: 404 });
     }
     if (target.deletedAt) {
-      return NextResponse.json({ ok: false, message: "already deleted" }, { status: 400 });
+      return NextResponse.json({ ok: false, message: "เอกสารถูกลบแล้ว" }, { status: 400 });
     }
 
     const sale = await prisma.sale.update({
@@ -145,46 +125,43 @@ export async function PATCH(
     return NextResponse.json({ ok: true, sale });
   } catch (err: any) {
     console.error("PATCH /api/sales/[id] error:", err);
-    return NextResponse.json(
-      { ok: false, message: err?.message ?? "update failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, message: err?.message ?? "update failed" }, { status: 500 });
   }
 }
 
-/* =========================
- * DELETE: ลบ (soft-delete)
- * ======================= */
-export async function DELETE(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
+/* ========= DELETE /api/sales/[idOrDocNo] (Soft delete) ========= */
+export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions);
-    const uid = (session?.user as any)?.id as string | undefined;
     const role = (session?.user as any)?.role as string | undefined;
-    if (!uid) return NextResponse.json({ ok: false, message: "unauthenticated" }, { status: 401 });
-    if (role !== "ADMIN") return NextResponse.json({ ok: false, message: "forbidden" }, { status: 403 });
+    const userId = (session?.user as any)?.id as string | undefined;
+    if (!userId || role !== "ADMIN") {
+      return NextResponse.json({ ok: false, message: "forbidden" }, { status: 403 });
+    }
 
     const idOrDoc = decodeURIComponent(params?.id ?? "");
-    const found = await prisma.sale.findFirst({
+    if (!idOrDoc) {
+      return NextResponse.json({ ok: false, message: "missing id" }, { status: 400 });
+    }
+
+    const target = await prisma.sale.findFirst({
       where: { OR: [{ id: idOrDoc }, { docNo: idOrDoc }] },
       select: { id: true, deletedAt: true },
     });
-    if (!found) return NextResponse.json({ ok: false, message: "not found" }, { status: 404 });
-    if (found.deletedAt) return NextResponse.json({ ok: true }); // ถูกลบอยู่แล้ว
+    if (!target) return NextResponse.json({ ok: false, message: "not found" }, { status: 404 });
+    if (target.deletedAt) {
+      return NextResponse.json({ ok: true, message: "already deleted" });
+    }
 
     await prisma.sale.update({
-      where: { id: found.id },
-      data: { deletedAt: new Date(), deletedBy: uid },
+      where: { id: target.id },
+      data: { deletedAt: new Date(), deletedBy: userId },
+      select: { id: true },
     });
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     console.error("DELETE /api/sales/[id] error:", err);
-    return NextResponse.json(
-      { ok: false, message: err?.message ?? "delete failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, message: err?.message ?? "delete failed" }, { status: 500 });
   }
 }

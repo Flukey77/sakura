@@ -6,26 +6,23 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
 
 const D = Prisma.Decimal;
-const r2 = (x: number | string | Prisma.Decimal) =>
-  Number(new D(x ?? 0).toDecimalPlaces(2));
+const r2 = (x: number | string | Prisma.Decimal) => Number(new D(x ?? 0).toDecimalPlaces(2));
 
 function todayLocal() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-/** YYYY-MM-DD/ISO หรือ dd/mm/yyyy (รองรับปี พ.ศ.) -> Date (fallback today) */
 function toDateThaiAware(x?: string): Date {
   if (!x) return todayLocal();
   const d = new Date(x);
   if (!isNaN(d.getTime())) return d;
-
   const m = String(x).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
     const dd = parseInt(m[1], 10);
     const mm = parseInt(m[2], 10) - 1;
     let yy = parseInt(m[3], 10);
-    if (yy > 2500) yy -= 543; // พ.ศ. -> ค.ศ.
+    if (yy > 2500) yy -= 543;
     return new Date(yy, mm, dd);
   }
   return todayLocal();
@@ -84,73 +81,7 @@ async function generateDocNo(forDate: Date) {
   return buildDocNo(forDate, nextSeq);
 }
 
-async function findOrCreateCustomer(reqCust: any) {
-  const name = (reqCust?.name ? String(reqCust.name) : "").trim();
-  const phone = (reqCust?.phone ? String(reqCust.phone) : "").trim() || undefined;
-  const email = (reqCust?.email ? String(reqCust.email) : "").trim() || undefined;
-  const address =
-    (reqCust?.address ? String(reqCust.address) : "").trim() || undefined;
-
-  if (reqCust?.id) {
-    const byId = await prisma.customer.findUnique({
-      where: { id: String(reqCust.id) },
-    });
-    if (byId) {
-      if (address && !byId.address) {
-        await prisma.customer.update({ where: { id: byId.id }, data: { address } });
-      }
-      return { id: byId.id, name: byId.name };
-    }
-  }
-
-  const existed = await prisma.customer.findFirst({
-    where: {
-      OR: [
-        ...(phone ? [{ phone }] : []),
-        ...(email ? [{ email }] : []),
-      ],
-    },
-  });
-
-  if (existed) {
-    if (address && !existed.address) {
-      await prisma.customer.update({ where: { id: existed.id }, data: { address } });
-    }
-    return { id: existed.id, name: existed.name };
-  }
-
-  if (!name && !phone && !email) return { id: null, name: null };
-
-  try {
-    const created = await prisma.customer.create({
-      data: {
-        name: name || phone || email || "CUSTOMER",
-        phone,
-        email,
-        address,
-        tags: [],
-      },
-      select: { id: true, name: true },
-    });
-    return { id: created.id, name: created.name };
-  } catch (e: any) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      const again = await prisma.customer.findFirst({
-        where: {
-          OR: [
-            ...(phone ? [{ phone }] : []),
-            ...(email ? [{ email }] : []),
-          ],
-        },
-        select: { id: true, name: true },
-      });
-      if (again) return { id: again.id, name: again.name };
-    }
-    throw e;
-  }
-}
-
-/* ----------------------------------- POST ---------------------------------- */
+/* ----------------------------------- POST (create) ---------------------------------- */
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -166,8 +97,54 @@ export async function POST(req: Request) {
 
     const channel: string | null = body.channel ?? null;
 
-    const { id: customerId, name: customerName } =
-      await findOrCreateCustomer(body.customer || {});
+    // ---- customer (ยกมาจากของเดิม) ----
+    const name = (body.customer?.name ? String(body.customer.name) : "").trim();
+    const phone = (body.customer?.phone ? String(body.customer.phone) : "").trim() || undefined;
+    const email = (body.customer?.email ? String(body.customer.email) : "").trim() || undefined;
+    const address =
+      (body.customer?.address ? String(body.customer.address) : "").trim() || undefined;
+
+    let customerId: string | null = null;
+    let customerName: string | null = null;
+
+    if (body.customer?.id) {
+      const byId = await prisma.customer.findUnique({
+        where: { id: String(body.customer.id) },
+      });
+      if (byId) {
+        if (address && !byId.address) {
+          await prisma.customer.update({ where: { id: byId.id }, data: { address } });
+        }
+        customerId = byId.id;
+        customerName = byId.name;
+      }
+    }
+
+    if (!customerId) {
+      const existed = await prisma.customer.findFirst({
+        where: { OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])] },
+      });
+      if (existed) {
+        if (address && !existed.address) {
+          await prisma.customer.update({ where: { id: existed.id }, data: { address } });
+        }
+        customerId = existed.id;
+        customerName = existed.name;
+      } else if (name || phone || email) {
+        const created = await prisma.customer.create({
+          data: {
+            name: name || phone || email || "CUSTOMER",
+            phone,
+            email,
+            address,
+            tags: [],
+          },
+          select: { id: true, name: true },
+        });
+        customerId = created.id;
+        customerName = created.name;
+      }
+    }
 
     const items = normalizeItems(body.items || []);
     if (!items.length) {
@@ -303,14 +280,11 @@ export async function POST(req: Request) {
     );
   } catch (err: any) {
     console.error("POST /api/sales error:", err);
-    return NextResponse.json(
-      { ok: false, message: err?.message ?? "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, message: err?.message ?? "Server error" }, { status: 500 });
   }
 }
 
-/* ------------------------------------ GET ---------------------------------- */
+/* ------------------------------------ GET (list) ---------------------------------- */
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -334,10 +308,9 @@ export async function GET(req: Request) {
 
     const mode = Prisma.QueryMode.insensitive;
 
-    // ---- baseWhere (รวมทุกฟิลเตอร์อย่าง type-safe) ----
+    // ---- baseWhere ----
     const baseAnd: Prisma.SaleWhereInput[] = [];
 
-    // ช่วงวันที่: ครอบคลุมทั้ง docDate และ date
     if (from || to) {
       const range: Prisma.DateTimeFilter = {};
       if (from) range.gte = toDateThaiAware(from);
@@ -349,7 +322,6 @@ export async function GET(req: Request) {
       baseAnd.push({ OR: [{ docDate: range }, { date: range }] });
     }
 
-    // ฟิลเตอร์เจาะจง
     if (doc) baseAnd.push({ docNo: { contains: doc, mode } });
     if (channel) baseAnd.push({ channel: { contains: channel, mode } });
     if (customer) {
@@ -361,13 +333,9 @@ export async function GET(req: Request) {
       });
     }
 
-    // คำค้นรวม
     const baseOr: Prisma.SaleWhereInput[] = [];
     if (q) {
-      baseOr.push(
-        { docNo: { contains: q, mode } },
-        { customer: { contains: q, mode } }
-      );
+      baseOr.push({ docNo: { contains: q, mode } }, { customer: { contains: q, mode } });
     }
 
     const baseWhere: Prisma.SaleWhereInput = {};
@@ -385,7 +353,7 @@ export async function GET(req: Request) {
       where = { ...where, status: statusParam };
     }
 
-    // counters (รวมทั้งหมดก่อน แล้วแยก DELETED)
+    // counters
     const countersSeed = await prisma.sale.findMany({
       where: { ...baseWhere },
       select: { status: true, deletedAt: true },
@@ -400,7 +368,6 @@ export async function GET(req: Request) {
 
     const totalCount = await prisma.sale.count({ where });
 
-    // ✅ เรียงล่าสุดบนสุดแบบเสถียร
     const rows = await prisma.sale.findMany({
       where,
       orderBy: [{ docDate: "desc" }, { date: "desc" }, { docNo: "desc" }],
@@ -434,14 +401,10 @@ export async function GET(req: Request) {
       deletedAt: r.deletedAt,
     }));
 
-    // สรุป (ไม่รวม CANCELLED และ DELETED เมื่อ status=ALL)
+    // summary ไม่รวม CANCELLED & DELETED เมื่อ status=ALL
     let summaryWhere: Prisma.SaleWhereInput = { ...baseWhere, deletedAt: null };
-    if (statusParam !== "ALL" && statusParam !== "DELETED") {
-      summaryWhere = { ...summaryWhere, status: statusParam };
-    }
-    if (statusParam === "ALL") {
-      summaryWhere = { ...summaryWhere, NOT: { status: "CANCELLED" } };
-    }
+    if (statusParam !== "ALL" && statusParam !== "DELETED") summaryWhere = { ...summaryWhere, status: statusParam };
+    if (statusParam === "ALL") summaryWhere = { ...summaryWhere, NOT: { status: "CANCELLED" } };
 
     const sRows = await prisma.sale.findMany({
       where: summaryWhere,
@@ -453,9 +416,7 @@ export async function GET(req: Request) {
       (acc, s) => {
         const total = new D(s.total || 0);
         const cogs =
-          s.totalCost != null
-            ? new D(s.totalCost)
-            : s.items.reduce((t, i) => t.plus(i.cogs), new D(0));
+          s.totalCost != null ? new D(s.totalCost) : s.items.reduce((t, i) => t.plus(i.cogs), new D(0));
         acc.total = r2(new D(acc.total).plus(total));
         acc.cogs = r2(new D(acc.cogs).plus(cogs));
         acc.gross = r2(new D(acc.total).minus(acc.cogs));
@@ -479,9 +440,6 @@ export async function GET(req: Request) {
     });
   } catch (err: any) {
     console.error("GET /api/sales error:", err);
-    return NextResponse.json(
-      { ok: false, message: err?.message ?? "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, message: err?.message ?? "Server error" }, { status: 500 });
   }
 }
