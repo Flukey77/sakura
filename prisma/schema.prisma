@@ -9,7 +9,7 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ---------- ENUMS ----------
+/* ---------- ENUMS ---------- */
 enum Role {
   ADMIN
   EMPLOYEE
@@ -28,7 +28,7 @@ enum AdChannel {
   TIKTOK
 }
 
-// ---------- MODELS ----------
+/* ---------- MODELS ---------- */
 model User {
   id        String   @id @default(cuid())
   username  String   @unique
@@ -67,10 +67,15 @@ model Product {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // -------- Soft Delete --------
+  deletedAt    DateTime?
+  deletedBy    String?
+
   items        SaleItem[]
 
   @@index([name])
   @@index([stock])
+  @@index([deletedAt])
 }
 
 model Sale {
