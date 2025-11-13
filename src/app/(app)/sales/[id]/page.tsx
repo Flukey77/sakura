@@ -1,3 +1,4 @@
+// src/app/(app)/sales/[id]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -76,11 +77,18 @@ export default function SaleDetailPage() {
 
   const tryRestore = async (force = false) => {
     if (!data) return;
-    const ok = await confirm.confirm({
+    const ok = await confirm({
       title: force ? "กู้คืน (ยอมให้สต๊อกติดลบ)" : "กู้คืนเอกสาร",
-      message: force
-        ? <>ต้องการ <b>กู้คืนแบบยอมให้สต๊อกติดลบ</b> สำหรับ <span className="font-medium">{data.docNo}</span> หรือไม่?</>
-        : <>ต้องการกู้คืนเอกสาร <span className="font-medium">{data.docNo}</span> หรือไม่?</>,
+      message: force ? (
+        <>
+          ต้องการ <b>กู้คืนแบบยอมให้สต๊อกติดลบ</b> สำหรับ{" "}
+          <span className="font-medium">{data.docNo}</span> หรือไม่?
+        </>
+      ) : (
+        <>
+          ต้องการกู้คืนเอกสาร <span className="font-medium">{data.docNo}</span> หรือไม่?
+        </>
+      ),
       okText: "ตกลง",
       cancelText: "ยกเลิก",
       danger: force,
@@ -101,7 +109,7 @@ export default function SaleDetailPage() {
           const lines = (j.problems as any[])
             .map((p: any) => `• ${p.code} (${p.name}) คงเหลือ ${p.remain}, ต้องการ ${p.need}`)
             .join("\n");
-          const okForce = await confirm.confirm({
+          const okForce = await confirm({
             title: "สต๊อกไม่เพียงพอ",
             message: (
               <div className="whitespace-pre-wrap">
@@ -224,7 +232,9 @@ export default function SaleDetailPage() {
               {data.customerInfo.name || data.customer || "-"}
               {data.customerInfo.phone ? ` • ${data.customerInfo.phone}` : ""}
               {data.customerInfo.email ? ` • ${data.customerInfo.email}` : ""}
-              {data.customerInfo.address ? <div className="text-slate-500 mt-1">{data.customerInfo.address}</div> : null}
+              {data.customerInfo.address ? (
+                <div className="text-slate-500 mt-1">{data.customerInfo.address}</div>
+              ) : null}
             </div>
           ) : (
             <div className="mt-3 grid gap-2">
@@ -256,7 +266,9 @@ export default function SaleDetailPage() {
                 onChange={(e) => setCust((c) => ({ ...c, address: e.target.value }))}
               />
               <div className="flex justify-end gap-2 pt-1">
-                <button className="btn" onClick={() => setEditingCustomer(false)}>ยกเลิก</button>
+                <button className="btn" onClick={() => setEditingCustomer(false)}>
+                  ยกเลิก
+                </button>
                 <button className="btn btn-primary" onClick={saveCustomer} disabled={savingCustomer}>
                   {savingCustomer ? "กำลังบันทึก…" : "บันทึก"}
                 </button>

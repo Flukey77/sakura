@@ -39,7 +39,6 @@ export const authOptions: NextAuthOptions = {
   },
   callbacks: {
     async jwt({ token, user }) {
-      // ตอน login ครั้งแรก user จะมีค่า → ใส่ลง token
       if (user) {
         token.id = (user as any).id as string;
         (token as any).username = (user as any).username;

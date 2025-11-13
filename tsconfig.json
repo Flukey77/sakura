@@ -2,17 +2,17 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,                       // 👈 ต้องเปิดเพื่อให้ .next/types อ้างอิง .js ได้
-    "checkJs": false,                      // ไม่ตรวจ type ในไฟล์ JS
+    "allowJs": false,                      // ไม่จำเป็นต้อง true สำหรับ Next + TS ปกติ
+    "checkJs": false,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
     "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
+    "module": "ESNext",                    // มาตรฐานตัวพิมพ์
+    "moduleResolution": "Bundler",         // มาตรฐานตัวพิมพ์
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "verbatimModuleSyntax": true,          // แนะนำสำหรับ Next 14+
+    "verbatimModuleSyntax": true,
     "forceConsistentCasingInFileNames": true,
     "jsx": "preserve",
     "baseUrl": ".",
@@ -27,6 +27,7 @@
     "next-env.d.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
+    "src/**/*.d.ts",                       // ✅ สำคัญ: ให้ TS เห็นไฟล์ประกาศ type (เช่น next-auth.d.ts)
     ".next/types/**/*.ts"
   ],
   "exclude": ["node_modules", ".next/cache/**/*"]
