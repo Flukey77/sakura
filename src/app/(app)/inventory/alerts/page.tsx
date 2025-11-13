@@ -8,19 +8,19 @@ type AlertRow = {
   name: string;
   stock: number;
   safetyStock: number;
-  suggest?: number; // ปริมาณแนะนำสั่งเพิ่ม (ถ้ามีใน API)
+  suggest?: number;
 };
 
 type ApiRes =
   | { ok: true; items: AlertRow[] }
-  | { ok: true; data: AlertRow[] } // บาง API อาจส่งชื่อคีย์ต่างกัน
+  | { ok: true; data: AlertRow[] }
   | { ok: false; message?: string };
 
 const fetcher = async (url: string) => {
   const r = await fetch(url, { cache: "no-store" });
   const j = (await r.json()) as ApiRes | any;
-  if (!r.ok) throw new Error(j?.message || "โหลดข้อมูลล้มเหลว");
-  // รองรับหลายรูปแบบผลลัพธ์
+  if (!r.ok) throw new Error((j as any)?.message || "โหลดข้อมูลล้มเหลว");
+
   const rows: AlertRow[] = (j?.items || j?.data || j || []).map((x: any) => ({
     code: String(x.code ?? x.productCode ?? ""),
     name: String(x.name ?? x.productName ?? ""),
@@ -40,10 +40,8 @@ export default function InventoryAlertsPage() {
   const sp = useSearchParams();
   const router = useRouter();
 
-  // sync page number กับ query string (?page=)
   const pageFromUrl = Math.max(1, Number(sp.get("page") || 1));
   const [page, setPage] = useState<number>(pageFromUrl);
-
   useEffect(() => {
     if (page !== pageFromUrl) setPage(pageFromUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -57,9 +55,12 @@ export default function InventoryAlertsPage() {
     setLoading(true);
     setErr(null);
     try {
-      // เปลี่ยน URL ด้านล่างให้ตรงกับ API ของคุณ ถ้าใช้เส้นทางอื่น
       const data = await fetcher("/api/inventory/alerts");
-      setRows(data);
+      // ฟิลเตอร์ให้ “ตรงกับ count”: safety > 0 และ stock < safety
+      const filtered = data.filter(
+        (r) => Number(r.safetyStock) > 0 && Number(r.stock) < Number(r.safetyStock)
+      );
+      setRows(filtered);
     } catch (e: any) {
       setErr(e?.message || "โหลดข้อมูลล้มเหลว");
     } finally {
@@ -71,7 +72,6 @@ export default function InventoryAlertsPage() {
     load();
   }, []);
 
-  // paginate
   const totalItems = rows.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
   const pageSafe = Math.min(Math.max(1, page), totalPages);
@@ -113,6 +113,7 @@ export default function InventoryAlertsPage() {
               {err} <button onClick={load} className="btn btn-secondary ml-2">ลองอีกครั้ง</button>
             </div>
           )}
+
           {loading ? (
             <div className="text-slate-400">กำลังโหลด…</div>
           ) : totalItems === 0 ? (
@@ -146,7 +147,6 @@ export default function InventoryAlertsPage() {
                 </table>
               </div>
 
-              {/* Pagination */}
               <div className="mt-6 flex items-center justify-center gap-3">
                 <button
                   onClick={() => goto(pageSafe - 1)}
