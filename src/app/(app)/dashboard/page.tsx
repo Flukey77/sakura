@@ -23,10 +23,14 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+// บังคับดึงข้อมูลสด (เผื่อหน้าเป็น server component ที่ wrap client ไว้)
 export const dynamic = "force-dynamic";
 
-const fetcher = (url: string) =>
-  fetch(url, { cache: "no-store" }).then((r) => r.json());
+const fetcher = async (url: string) => {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error("fetch failed");
+  return r.json();
+};
 
 function DashboardContent() {
   const sp = useSearchParams();
@@ -34,7 +38,7 @@ function DashboardContent() {
   const pathname = usePathname();
   const { toast } = useToast();
 
-  // อ่าน toast จาก query แล้วล้างออก
+  // ----- แสดง toast จาก query แล้วล้างออกทันที (กันยิงซ้ำ) -----
   useEffect(() => {
     const t = sp.get("toast");
     if (!t) return;
@@ -60,27 +64,28 @@ function DashboardContent() {
       scroll: false,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sp, pathname, router, toast]);
+  }, [sp, pathname, router]);
 
-  // จำนวนสินค้าใกล้หมด (ใช้โชว์จุดแดง + การ์ดแจ้งเตือน)
+  // ----- จำนวนสินค้าใกล้หมด -----
   const { data: alerts } = useSWR<{ ok: boolean; count: number }>(
     "/api/inventory/alerts/count",
     fetcher,
     {
-      refreshInterval: 60_000,
+      // ให้รีเฟรชเอง, โฟกัสหน้าจอแล้วรีเฟรช, และดึงใหม่ถ้า stale
+      refreshInterval: 30_000,
       revalidateOnFocus: true,
+      revalidateIfStale: true,
+      keepPreviousData: true,
       fallbackData: { ok: true, count: 0 },
     }
   );
   const lowStockCount = Number(alerts?.count ?? 0);
 
-  // เอา role มาตัดสินใจแสดงการ์ด Admin
+  // ----- สิทธิ์ผู้ใช้ (อาจยังไม่โหลดในเฟรมแรกได้) -----
   const { data: session } = useSession();
-  const role = (session?.user as any)?.role as
-    | "ADMIN"
-    | "EMPLOYEE"
-    | undefined;
+  const role = (session?.user as any)?.role as "ADMIN" | "EMPLOYEE" | undefined;
 
+  // ----- ชอร์ตคัต -----
   const shortcutItems: ShortcutItem[] = useMemo(() => {
     const base: ShortcutItem[] = [
       {
@@ -135,7 +140,7 @@ function DashboardContent() {
 
   return (
     <div className="space-y-6">
-      {/* หัวข้อ + จุดแดงกระพริบ เมื่อมีสินค้าใกล้หมด */}
+      {/* หัวข้อ + จุดแดงเมื่อมีสินค้าใกล้หมด */}
       <div className="flex items-center gap-2">
         <h1 className="text-xl font-semibold">ภาพรวม</h1>
         {lowStockCount > 0 && (
@@ -143,7 +148,7 @@ function DashboardContent() {
         )}
       </div>
 
-      {/* การ์ดแจ้งเตือนสินค้าใกล้หมด (แสดงเมื่อ count > 0) */}
+      {/* การ์ดแจ้งเตือนสินค้าใกล้หมด */}
       {lowStockCount > 0 && (
         <div className="card p-4 sm:p-5 flex items-start gap-3 border-amber-300/60 bg-amber-50">
           <span className="notif-dot mt-1.5"></span>
@@ -213,7 +218,9 @@ function DashboardContent() {
 
 export default function DashboardPage() {
   return (
-    <Suspense fallback={<div className="text-slate-400">กำลังโหลดแดชบอร์ด…</div>}>
+    <Suspense
+      fallback={<div className="center-block text-slate-400">กำลังโหลดแดชบอร์ด…</div>}
+    >
       <DashboardContent />
     </Suspense>
   );
