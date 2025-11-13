@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useConfirm } from "@/app/components/ConfirmProvider";
-import { useSession } from "next-auth/react";
 
 type Item = {
   id: number;
@@ -39,19 +38,12 @@ const fmtBaht = (n: number) =>
 export default function SaleDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
-  const { confirm } = useConfirm(); // <- ต้องดึง confirm ออกจาก hook
-  const { data: session } = useSession();
-  const role = (session?.user as any)?.role as "ADMIN" | "EMPLOYEE" | undefined;
+  const confirm = useConfirm();
 
   const [data, setData] = useState<SaleDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const id = decodeURIComponent(params.id);
-
-  // --- ฟอร์มแก้ไขลูกค้า (เฉพาะแอดมิน) ---
-  const [editingCustomer, setEditingCustomer] = useState(false);
-  const [cust, setCust] = useState({ name: "", phone: "", email: "", address: "" });
-  const [savingCustomer, setSavingCustomer] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -60,7 +52,6 @@ export default function SaleDetailPage() {
       const j = (await res.json()) as ApiRes;
       if (!res.ok || !j.ok) throw new Error((j as any)?.error || "โหลดข้อมูลล้มเหลว");
       setData(j.sale);
-      setCust(j.sale.customerInfo ?? { name: "", phone: "", email: "", address: "" });
     } catch (e: any) {
       alert(e?.message || "โหลดข้อมูลล้มเหลว");
     } finally {
@@ -73,18 +64,23 @@ export default function SaleDetailPage() {
     load();
   }, [id]);
 
-  // กู้คืนเอกสาร (รองรับ force)
   const tryRestore = async (force = false) => {
     if (!data) return;
     const ok = await confirm({
       title: force ? "กู้คืน (ยอมให้สต๊อกติดลบ)" : "กู้คืนเอกสาร",
-      message: force ? (
-        <>
-          ต้องการ <b>กู้คืนแบบยอมให้สต๊อกติดลบ</b> สำหรับ{" "}
-          <span className="font-medium">{data.docNo}</span> หรือไม่?
-        </>
-      ) : (
-        <>ต้องการกู้คืนเอกสาร <span className="font-medium">{data.docNo}</span> หรือไม่?</>
+      message: (
+        <div>
+          {force ? (
+            <>
+              ต้องการ <b>กู้คืนแบบยอมให้สต๊อกติดลบ</b> สำหรับ{" "}
+              <span className="font-medium">{data.docNo}</span> หรือไม่?
+            </>
+          ) : (
+            <>
+              ต้องการกู้คืนเอกสาร <span className="font-medium">{data.docNo}</span> หรือไม่?
+            </>
+          )}
+        </div>
       ),
       okText: "ตกลง",
       cancelText: "ยกเลิก",
@@ -102,13 +98,19 @@ export default function SaleDetailPage() {
       const j = await res.json().catch(() => ({}));
 
       if (!res.ok || j?.ok === false) {
+        // ถ้าสต๊อกไม่พอ: แสดงรายละเอียด แล้วถามว่าจะ force ไหม
         if (j?.code === "INSUFFICIENT_STOCK" && Array.isArray(j?.problems)) {
           const lines = (j.problems as any[])
             .map((p: any) => `• ${p.code} (${p.name}) คงเหลือ ${p.remain}, ต้องการ ${p.need}`)
             .join("\n");
           const okForce = await confirm({
             title: "สต๊อกไม่เพียงพอ",
-            message: <div className="whitespace-pre-wrap">{lines}\n\nต้องการกู้คืนแบบยอมให้สต๊อกติดลบหรือไม่?</div>,
+            message: (
+              <div className="whitespace-pre-wrap">
+                {lines}
+                {"\n\n"}ต้องการกู้คืนแบบยอมให้สต๊อกติดลบหรือไม่?
+              </div>
+            ),
             okText: "กู้คืนแบบ Force",
             cancelText: "ยกเลิก",
             danger: true,
@@ -116,6 +118,7 @@ export default function SaleDetailPage() {
           if (okForce) await tryRestore(true);
           return;
         }
+
         throw new Error(j?.message || "กู้คืนไม่สำเร็จ");
       }
 
@@ -127,28 +130,6 @@ export default function SaleDetailPage() {
       setBusy(false);
     }
   };
-
-  // บันทึกข้อมูลลูกค้า (เฉพาะแอดมิน)
-  async function saveCustomer() {
-    if (!data) return;
-    setSavingCustomer(true);
-    try {
-      const res = await fetch(`/api/sales/${encodeURIComponent(data.id)}/customer`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(cust),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || j?.ok === false) throw new Error(j?.message || "บันทึกไม่สำเร็จ");
-      await load();
-      setEditingCustomer(false);
-      alert("อัปเดตข้อมูลลูกค้าเรียบร้อย");
-    } catch (e: any) {
-      alert(e?.message || "บันทึกไม่สำเร็จ");
-    } finally {
-      setSavingCustomer(false);
-    }
-  }
 
   const headerBadge = useMemo(() => {
     const s = (data?.status || "NEW").toUpperCase();
@@ -167,7 +148,10 @@ export default function SaleDetailPage() {
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <button onClick={() => router.back()} className="rounded-lg border px-3 py-1.5 hover:bg-slate-50">
+        <button
+          onClick={() => router.back()}
+          className="rounded-lg border px-3 py-1.5 hover:bg-slate-50"
+        >
           กลับ
         </button>
 
@@ -175,7 +159,9 @@ export default function SaleDetailPage() {
           {data.docNo}
           <span className="ml-3">{headerBadge}</span>
           {data.deletedAt && (
-            <span className="ml-3 px-2 py-0.5 rounded-full text-xs bg-rose-100 text-rose-700">ถูกลบแล้ว</span>
+            <span className="ml-3 px-2 py-0.5 rounded-full text-xs bg-rose-100 text-rose-700">
+              ถูกลบแล้ว
+            </span>
           )}
         </div>
 
@@ -199,70 +185,17 @@ export default function SaleDetailPage() {
           <div className="text-slate-500">วันที่เอกสาร</div>
           <div className="mt-1">{new Date(data.docDate).toLocaleDateString("th-TH")}</div>
         </div>
-
         <div className="rounded-2xl border bg-white p-4">
           <div className="text-slate-500">ช่องทางการขาย</div>
           <div className="mt-1">{data.channel || "-"}</div>
         </div>
-
-        {/* ลูกค้า (แอดมินแก้ไขได้) */}
         <div className="rounded-2xl border bg-white p-4">
-          <div className="flex items-center justify-between">
-            <div className="text-slate-500">ลูกค้า</div>
-            {role === "ADMIN" && !data.deletedAt && (
-              <button
-                onClick={() => setEditingCustomer((v) => !v)}
-                className="text-blue-600 hover:underline text-sm"
-              >
-                {editingCustomer ? "ยกเลิก" : "แก้ไขลูกค้า"}
-              </button>
-            )}
+          <div className="text-slate-500">ลูกค้า</div>
+          <div className="mt-1">
+            {data.customerInfo.name || data.customer || "-"}
+            {data.customerInfo.phone ? ` • ${data.customerInfo.phone}` : ""}
+            {data.customerInfo.email ? ` • ${data.customerInfo.email}` : ""}
           </div>
-
-          {!editingCustomer ? (
-            <div className="mt-1">
-              {data.customerInfo.name || data.customer || "-"}
-              {data.customerInfo.phone ? ` • ${data.customerInfo.phone}` : ""}
-              {data.customerInfo.email ? ` • ${data.customerInfo.email}` : ""}
-              {data.customerInfo.address ? <div className="text-slate-500 mt-1">{data.customerInfo.address}</div> : null}
-            </div>
-          ) : (
-            <div className="mt-3 grid gap-2">
-              <input
-                className="input"
-                placeholder="ชื่อ"
-                value={cust.name}
-                onChange={(e) => setCust((c) => ({ ...c, name: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="เบอร์"
-                inputMode="tel"
-                value={cust.phone}
-                onChange={(e) => setCust((c) => ({ ...c, phone: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="อีเมล"
-                inputMode="email"
-                value={cust.email}
-                onChange={(e) => setCust((c) => ({ ...c, email: e.target.value }))}
-              />
-              <textarea
-                className="input"
-                rows={3}
-                placeholder="ที่อยู่"
-                value={cust.address}
-                onChange={(e) => setCust((c) => ({ ...c, address: e.target.value }))}
-              />
-              <div className="flex justify-end gap-2 pt-1">
-                <button className="btn" onClick={() => setEditingCustomer(false)}>ยกเลิก</button>
-                <button className="btn btn-primary" onClick={saveCustomer} disabled={savingCustomer}>
-                  {savingCustomer ? "กำลังบันทึก…" : "บันทึก"}
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
