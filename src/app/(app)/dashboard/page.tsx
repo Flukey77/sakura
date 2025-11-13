@@ -23,7 +23,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-// บังคับดึงข้อมูลสด (เผื่อหน้าเป็น server component ที่ wrap client ไว้)
+// บังคับดึงข้อมูลสด
 export const dynamic = "force-dynamic";
 
 const fetcher = async (url: string) => {
@@ -67,12 +67,12 @@ function DashboardContent() {
   }, [sp, pathname, router]);
 
   // ----- จำนวนสินค้าใกล้หมด -----
-  const { data: alerts } = useSWR<{ ok: boolean; count: number }>(
+  const { data: alerts, error } = useSWR<{ ok: boolean; count: number }>(
     "/api/inventory/alerts/count",
     fetcher,
     {
-      // ให้รีเฟรชเอง, โฟกัสหน้าจอแล้วรีเฟรช, และดึงใหม่ถ้า stale
-      refreshInterval: 30_000,
+      // รีเฟรชถี่ขึ้น และ revalidate ตอนโฟกัสหน้าจอ
+      refreshInterval: 10_000,
       revalidateOnFocus: true,
       revalidateIfStale: true,
       keepPreviousData: true,
@@ -134,7 +134,6 @@ function DashboardContent() {
         desc: "เพิ่ม/ลบ/ปรับสิทธิ์ผู้ใช้งาน",
       });
     }
-
     return base;
   }, [role]);
 
@@ -143,15 +142,13 @@ function DashboardContent() {
       {/* หัวข้อ + จุดแดงเมื่อมีสินค้าใกล้หมด */}
       <div className="flex items-center gap-2">
         <h1 className="text-xl font-semibold">ภาพรวม</h1>
-        {lowStockCount > 0 && (
-          <span className="notif-dot" title="มีสินค้าใกล้หมด"></span>
-        )}
+        {lowStockCount > 0 && <span className="notif-dot" title="มีสินค้าใกล้หมด" />}
       </div>
 
       {/* การ์ดแจ้งเตือนสินค้าใกล้หมด */}
       {lowStockCount > 0 && (
         <div className="card p-4 sm:p-5 flex items-start gap-3 border-amber-300/60 bg-amber-50">
-          <span className="notif-dot mt-1.5"></span>
+          <span className="notif-dot mt-1.5" />
           <div className="min-w-0">
             <div className="font-medium text-slate-800">
               สินค้าใกล้หมด {lowStockCount.toLocaleString()} รายการ
@@ -165,6 +162,13 @@ function DashboardContent() {
               ไปยังการแจ้งเตือน
             </Link>
           </div>
+        </div>
+      )}
+
+      {/* ถ้า API count error ให้โชว์ banner เบา ๆ เพื่อสังเกตได้ */}
+      {error && (
+        <div className="card p-3 border-rose-200 bg-rose-50 text-rose-700">
+          โหลดจำนวนการแจ้งเตือนสต๊อกไม่สำเร็จ
         </div>
       )}
 
@@ -218,9 +222,7 @@ function DashboardContent() {
 
 export default function DashboardPage() {
   return (
-    <Suspense
-      fallback={<div className="center-block text-slate-400">กำลังโหลดแดชบอร์ด…</div>}
-    >
+    <Suspense fallback={<div className="center-block text-slate-400">กำลังโหลดแดชบอร์ด…</div>}>
       <DashboardContent />
     </Suspense>
   );
